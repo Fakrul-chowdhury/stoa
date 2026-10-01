@@ -1,5 +1,5 @@
 // Stoa service worker: keeps the app working offline.
-const VERSION = "stoa-v2.0.0";
+const VERSION = "stoa-v2.0.1";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
