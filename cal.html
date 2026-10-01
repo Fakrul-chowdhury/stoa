@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Add reminder · Stoa</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{--bg:#F5F5F5;--surface:#FFFFFF;--ink:#121212;--muted:#5F6B78;--line:#E2E4E8;--btn:#30475E;--on-btn:#F5F5F5;color-scheme:light}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#121212;--surface:#1C1C1C;--ink:#F5F5F5;--muted:#A1A1A1;--line:#272727;--btn:#F5F5F5;--on-btn:#121212;color-scheme:dark}
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));-webkit-font-smoothing:antialiased}
+main{width:100%;max-width:400px}
+img{width:64px;height:64px;border-radius:16px;display:block;margin-bottom:22px}
+h1{margin:0;font-family:ui-serif,"New York","Iowan Old Style",Georgia,"Times New Roman",serif;font-size:30px;font-weight:600;line-height:1.15}
+p{margin:10px 0 0;color:var(--muted)}
+ul{list-style:none;margin:22px 0 0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+li{padding:13px 16px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+li:first-child{border-top:0}
+a.btn{display:block;margin-top:22px;padding:13px 18px;border-radius:12px;background:var(--btn);color:var(--on-btn);font-weight:600;text-align:center;text-decoration:none}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <img src="apple-touch-icon.png" alt="">
+  <h1 id="title">Add to Calendar</h1>
+  <p id="msg">Your iPhone should ask to add this reminder. If it doesn't, tap the button.</p>
+  <ul id="list" hidden></ul>
+  <a class="btn" id="add" hidden>Add to Calendar</a>
+  <p id="after" hidden>Once it's added, switch back to Stoa.</p>
+</main>
+<script>
+// Stoa hands a reminder to this page after the # in the address (which is never sent to a server).
+// It runs in Safari, which can pass calendar data to the iPhone Calendar; a home-screen app can't.
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id);};
+  var ics="";
+  try{ics=decodeURIComponent(location.hash.slice(1));}catch(e){}
+  if(!/^BEGIN:VCALENDAR\r?\n[\s\S]*END:VCALENDAR\s*$/.test(ics)){
+    $("title").textContent="Nothing to add";
+    $("msg").textContent="Open Stoa, tap a goal, and turn on Remind me to add a reminder.";
+    return;
+  }
+  var unesc=function(s){return s.replace(/\\n/gi," ").replace(/\\([\\;,])/g,"$1");};
+  (ics.match(/^SUMMARY:.*$/gm)||[]).forEach(function(line){
+    var li=document.createElement("li");
+    li.textContent=unesc(line.slice(8).trim());
+    $("list").appendChild(li);
+  });
+  var url="data:text/calendar;charset=utf-8,"+encodeURIComponent(ics);
+  $("add").href=url;
+  $("list").hidden=!$("list").children.length;
+  $("add").hidden=false;$("after").hidden=false;
+  // Keep the reminder out of the address bar and history.
+  try{history.replaceState(null,"",location.pathname);}catch(e){}
+  setTimeout(function(){location.href=url;},400);
+})();
+</script>
+</body>
+</html>

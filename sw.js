@@ -1,6 +1,6 @@
 // Stoa service worker: keeps the app working offline.
-const VERSION = "stoa-v2.0.1";
-const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const VERSION = "stoa-v2.0.2";
+const FILES = ["./", "./index.html", "./cal.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -19,12 +19,16 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
   if (req.mode === "navigate") {
+    // Only the app page is kept as the offline copy of index.html; cal.html is served as itself.
+    const isApp = /\/(index\.html)?$/.test(new URL(req.url).pathname);
     e.respondWith(
       fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(VERSION).then(c => c.put("./index.html", copy));
+        if (isApp && res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then(c => c.put("./index.html", copy));
+        }
         return res;
-      }).catch(() => caches.match("./index.html"))
+      }).catch(() => caches.match(isApp ? "./index.html" : req, { ignoreSearch: true }))
     );
     return;
   }
