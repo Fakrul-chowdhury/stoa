@@ -180,6 +180,10 @@ textarea::placeholder,input::placeholder{color:var(--muted);opacity:.7}
 .entry-text{display:-webkit-box;margin-top:3px;font-family:var(--serif);color:var(--muted);font-size:16px;line-height:1.5;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .empty{text-align:center;padding:44px 12px;color:var(--muted)}
 .empty p{margin:0 0 16px}
+.empty .btn-row{justify-content:center}
+.note-ic{width:40px;height:40px;margin-top:2px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.note-ic svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+textarea.input.note-input{min-height:42vh;resize:none}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 18px;border-radius:12px;border:1px solid var(--line-strong);font-weight:600;font-size:15px;background:var(--surface);cursor:pointer;text-align:center}
@@ -366,6 +370,7 @@ const I={
   bell:'<svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>',
   cal:'<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   chev:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  pen:'<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   heart:'<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-8-4.7-8-10.6A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 8 2.9c0 5.9-8 10.6-8 10.6z"/></svg>',
   plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   down:'<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
@@ -434,6 +439,7 @@ function cleanRoutine(r){
   const f=FREQS.some(x=>x[0]===r.freq)?r.freq:"once";
   return {id:String(r.id||newId()),text:String(r.text||"").slice(0,300),freq:f,days:Array.isArray(r.days)?r.days.filter(d=>d>=0&&d<=6):[],time:/^\d{2}:\d{2}$/.test(r.time||"")?r.time:"",lastUsed:Number(r.lastUsed)||0,createdAt:Number(r.createdAt)||Date.now()};
 }
+function cleanNote(n){const c=Number(n.createdAt)||Date.now();return {id:String(n.id||newId()),text:String(n.text||""),createdAt:c,updatedAt:Number(n.updatedAt)||c};}
 function cleanQuote(q){return {id:String(q.id||newId()),text:String(q.text||"").slice(0,2000),author:String(q.author||"").slice(0,120),fav:!!q.fav,createdAt:Number(q.createdAt)||Date.now()};}
 function load(){
   let raw={};
@@ -445,7 +451,8 @@ function load(){
     settings:{theme:raw.settings&&["system","light","dark"].includes(raw.settings.theme)?raw.settings.theme:"system"},
     days,
     routines:(raw.routines||[]).map(cleanRoutine).filter(r=>r.text),
-    quotes:(raw.quotes||[]).map(cleanQuote).filter(q=>q.text)
+    quotes:(raw.quotes||[]).map(cleanQuote).filter(q=>q.text),
+    notes:(raw.notes||[]).map(cleanNote).filter(n=>n.text.trim())
   };
 }
 const S=load();
@@ -750,30 +757,74 @@ function updateWeek(){
    Journal
    ========================================================= */
 function buildJournal(){
-  $("#view-journal").innerHTML='<header class="page-head"><div><h1>Journal</h1><p class="muted" data-jcount></p></div></header>'+
-    '<input type="search" class="search" data-search placeholder="Search entries and goals" aria-label="Search entries"><div data-jlist></div>';
+  $("#view-journal").innerHTML='<header class="page-head"><div><h1>Journal</h1><p class="muted" data-jcount></p></div><button class="btn primary" data-new-note>'+I.plus+'New note</button></header>'+
+    '<input type="search" class="search" data-search placeholder="Search entries, notes and goals" aria-label="Search entries"><div data-jlist></div>';
 }
 function renderJournal(){
   const q=($("[data-search]").value||"").trim().toLowerCase();
-  const keys=Object.keys(S.days).filter(k=>k<=TODAY&&hasContent(S.days[k])).sort().reverse();
-  $("[data-jcount]").textContent=keys.length?keys.length+" day"+(keys.length===1?"":"s")+" recorded":"";
+  const keys=Object.keys(S.days).filter(k=>k<=TODAY&&hasContent(S.days[k]));
+  const count=[];
+  if(keys.length)count.push(keys.length+" day"+(keys.length===1?"":"s")+" recorded");
+  if(S.notes.length)count.push(S.notes.length+" note"+(S.notes.length===1?"":"s"));
+  $("[data-jcount]").textContent=count.join(", ");
   const list=$("[data-jlist]");
-  if(!keys.length){list.innerHTML='<div class="empty"><p>Your entries will show up here. Start with how today is going.</p><button class="btn primary" data-tab="today">Write today\'s entry</button></div>';return;}
-  const shown=q?keys.filter(k=>{const d=S.days[k];return d.text.toLowerCase().includes(q)||d.goals.some(g=>g.text.toLowerCase().includes(q));}):keys;
-  if(!shown.length){list.innerHTML='<div class="empty"><p>No entries match "'+esc(q)+'".</p></div>';return;}
+  if(!keys.length&&!S.notes.length){list.innerHTML='<div class="empty"><p>Your entries will show up here. Start with how today is going, or write an open note about anything.</p><div class="btn-row"><button class="btn primary" data-tab="today">Write today\'s entry</button><button class="btn" data-new-note>Write a note</button></div></div>';return;}
+  // Daily entries and open notes share one timeline.
+  const items=[];
+  keys.forEach(k=>{const d=S.days[k];if(!q||d.text.toLowerCase().includes(q)||d.goals.some(g=>g.text.toLowerCase().includes(q)))items.push({k,day:d,at:Infinity});});
+  S.notes.forEach(n=>{if(!q||n.text.toLowerCase().includes(q))items.push({k:keyOf(new Date(n.createdAt)),note:n,at:n.createdAt});});
+  if(!items.length){list.innerHTML='<div class="empty"><p>No entries match "'+esc(q)+'".</p></div>';return;}
+  // Newest day first; within a day, the daily entry, then notes from latest to earliest.
+  items.sort((a,b)=>a.k<b.k?1:a.k>b.k?-1:b.at-a.at);
   let html="",month="";
-  for(const k of shown){
-    const d=S.days[k];
+  for(const it of items){
+    const k=it.k;
     const mo=fmt(k,{month:"long",year:"numeric"});
     if(mo!==month){html+='<h2 class="month">'+esc(mo)+'</h2>';month=mo;}
+    const date=esc(k===TODAY?"Today":fmt(k,{weekday:"short",day:"numeric",month:"short"}));
+    if(it.note){
+      const nt=it.note;
+      html+='<button class="entry" data-open-note="'+esc(nt.id)+'"><span class="note-ic">'+I.pen+'</span><span class="entry-body">'+
+        '<span class="entry-top"><span class="entry-date">'+date+'</span><span class="entry-meta">'+esc("Note, "+new Date(nt.createdAt).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}))+'</span></span>'+
+        '<span class="entry-text">'+esc(nt.text.trim())+'</span></span></button>';
+      continue;
+    }
+    const d=it.day;
     const n=d.goals.length,done=d.goals.filter(g=>g.done).length;
     const meta=[];if(d.energy)meta.push(ENERGY[d.energy-1]+" energy");if(n)meta.push(done+"/"+n+" goals");
     const excerpt=d.text.trim()||(d.mood||d.energy?"Checked in, no journal entry.":n+" goal"+(n===1?"":"s")+" set.");
     html+='<button class="entry" data-open-day="'+k+'"><span class="f">'+face(d.mood,40)+'</span><span class="entry-body">'+
-      '<span class="entry-top"><span class="entry-date">'+esc(k===TODAY?"Today":fmt(k,{weekday:"short",day:"numeric",month:"short"}))+'</span><span class="entry-meta">'+esc(meta.join(", "))+'</span></span>'+
+      '<span class="entry-top"><span class="entry-date">'+date+'</span><span class="entry-meta">'+esc(meta.join(", "))+'</span></span>'+
       '<span class="entry-text">'+esc(excerpt)+'</span></span></button>';
   }
   list.innerHTML=html;
+}
+
+/* Open notes: journal entries that aren't tied to a day's check-in */
+let editN=null; // id of the note in the editor; null until a new note has some text
+function openNote(id){
+  const n=id?S.notes.find(x=>x.id===id):null;
+  editN=n?n.id:null;
+  const when=n?new Date(n.createdAt).toLocaleString(undefined,{weekday:"long",day:"numeric",month:"long",hour:"numeric",minute:"2-digit"}):"Saves as you write";
+  openSheet(2,sheetHead(n?"Note":"New note",when)+
+    '<textarea class="input note-input" data-n-text placeholder="Write anything…" aria-label="Note">'+esc(n?n.text:"")+'</textarea>'+
+    '<div class="sheet-actions" style="margin-top:14px"><button class="btn primary block-btn" data-n-done>Done</button>'+(n?'<button class="btn danger block-btn" data-n-delete>Delete note</button>':'')+'</div>');
+  if(!n)setTimeout(()=>{const t=$("[data-n-text]");if(t)t.focus();},350);
+}
+function writeNote(text){
+  let n=editN&&S.notes.find(x=>x.id===editN);
+  if(!n){
+    if(!text.trim())return;
+    n=cleanNote({});S.notes.push(n);editN=n.id;
+  }
+  n.text=text;n.updatedAt=Date.now();
+  saveSoon();
+}
+function finishNote(){
+  if(!editN)return;
+  const n=S.notes.find(x=>x.id===editN);
+  if(n&&!n.text.trim())S.notes=S.notes.filter(x=>x!==n); // an emptied note is dropped
+  editN=null;save();
 }
 
 /* =========================================================
@@ -892,7 +943,7 @@ function closeSheet(n){
   sheetOpen[n]=false;
   $("#scrim"+n).classList.remove("open");$("#sheet"+n).classList.remove("open");
   if(n===1)daySheetKey=null;
-  if(n===2)editR=null;
+  if(n===2){editR=null;finishNote();}
   if(!sheetOpen[1]&&!sheetOpen[2])document.body.style.overflow="";
   setTimeout(()=>{if(!sheetOpen[n])$("#sheet"+n).innerHTML="";},480);
   renderAll();
@@ -1077,7 +1128,7 @@ const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").sl
    Backup
    ========================================================= */
 async function exportData(){
-  const data=JSON.stringify({app:"stoa",version:2,exportedAt:new Date().toISOString(),profile:S.profile,settings:S.settings,days:S.days,routines:S.routines,quotes:S.quotes},null,2);
+  const data=JSON.stringify({app:"stoa",version:2,exportedAt:new Date().toISOString(),profile:S.profile,settings:S.settings,days:S.days,routines:S.routines,quotes:S.quotes,notes:S.notes},null,2);
   const name="stoa-backup-"+TODAY+".json";
   try{
     const file=new File([data],name,{type:"application/json"});
@@ -1103,6 +1154,11 @@ function importData(file){
       }
       (obj.routines||[]).forEach(r=>{const c=cleanRoutine(r);if(c.text&&!routine(c.id)&&!S.routines.some(x=>x.text.toLowerCase()===c.text.toLowerCase()))S.routines.push(c);});
       (obj.quotes||[]).forEach(q=>{const c=cleanQuote(q);if(c.text&&!S.quotes.some(x=>x.id===c.id||x.text===c.text))S.quotes.push(c);});
+      (obj.notes||[]).forEach(x=>{
+        const c=cleanNote(x);if(!c.text.trim())return;
+        const cur=S.notes.find(y=>y.id===c.id);
+        if(!cur)S.notes.push(c);else if(c.updatedAt>cur.updatedAt){cur.text=c.text;cur.updatedAt=c.updatedAt;}
+      });
       if(obj.profile&&obj.profile.name&&!S.profile.name)S.profile.name=String(obj.profile.name).slice(0,40);
       // Older backups: give their goals a saved-goal entry
       for(const k in S.days)S.days[k].goals.forEach(g=>{if(!g.rid){const r=findOrCreateRoutine(g.text);r.lastUsed=0;g.rid=r.id;}});
@@ -1244,6 +1300,16 @@ document.addEventListener("click",e=>{
 
   // quotes
   if(t.hasAttribute("data-new-quote")){openQuote(null);return;}
+
+  // open notes
+  if(t.hasAttribute("data-new-note")){openNote(null);return;}
+  if(ds.openNote){openNote(ds.openNote);return;}
+  if(t.hasAttribute("data-n-done")){closeSheet(2);return;}
+  if(t.hasAttribute("data-n-delete")&&editN){
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again to delete";return;}
+    S.notes=S.notes.filter(x=>x.id!==editN);editN=null;save();toast("Note deleted");closeSheet(2);return;
+  }
+
   if(ds.editQuote){openQuote(ds.editQuote);return;}
   if(ds.fav){const q=S.quotes.find(x=>x.id===ds.fav);if(q){q.fav=!q.fav;save();renderAll();const h=$$("[data-fav]").find(b=>b.dataset.fav===ds.fav);if(h&&q.fav)h.classList.add("pop");}return;}
   if(ds.qfilter){quoteFilter=ds.qfilter;renderQuotes();return;}
@@ -1294,6 +1360,7 @@ document.addEventListener("input",e=>{
     return;
   }
   if(el.matches("[data-search]")){renderJournal();return;}
+  if(el.matches("[data-n-text]")){writeNote(el.value);return;}
   if(el.matches("[data-r-text]")&&editR){editR.text=el.value;return;}
   if(el.matches("[data-r-time]")&&editR){editR.time=el.value||"08:00";syncRemind();return;}
   if(el.matches("[data-s-name]")){S.profile.name=el.value.trim().slice(0,40);S.profile.onboarded=true;saveSoon();updateHeader();return;}
