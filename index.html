@@ -266,6 +266,7 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .btn.muted-btn{color:var(--muted);border-color:transparent;background:none}
 .btn.block-btn{width:100%}
 a.btn{color:inherit;text-decoration:none}
+a.link{text-decoration:none}
 .btn:active{transform:scale(.97);opacity:.9}
 .btn:disabled{opacity:.4}
 .btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -591,7 +592,11 @@ function load(){
 }
 const S=load();
 let saveTimer=null;
-function save(){clearTimeout(saveTimer);saveTimer=null;try{localStorage.setItem(STORE_KEY,JSON.stringify(S));}catch(e){toast("Couldn't save. Your phone may be low on storage.");}}
+function save(){
+  clearTimeout(saveTimer);saveTimer=null;
+  try{localStorage.setItem(STORE_KEY,JSON.stringify(S));}catch(e){toast("Couldn't save. Your phone may be low on storage.");}
+  pushSoon();
+}
 function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(save,300);}
 
 const getDay=k=>S.days[k]||blankDay();
@@ -1392,7 +1397,7 @@ let editR=null; // working copy {id, text, freq, days, time, remind, track, targ
 // What the calendar event depends on. calSig is the version already handed to Calendar.
 const remSig=r=>r.time?r.time+"|"+r.freq+"|"+(r.freq==="custom"?r.days.join(","):""):"";
 const calPending=R=>{const g=remSig({time:R.remind?R.time:"",freq:R.freq,days:R.days});return !!g&&g!==R.calSig;};
-const saveLabel=R=>calPending(R)?"Save and add to Google Calendar":"Save";
+const saveLabel=R=>calPending(R)&&!pushOn?"Save and add to Google Calendar":"Save";
 const draftR=R=>({text:R.text.trim()||"Goal",freq:R.freq,days:R.days,time:R.time});
 function syncRemind(){
   const R=editR;if(!R)return;
@@ -1428,9 +1433,14 @@ function renderRoutine(){
       // Always in the sheet and only shown or hidden, so the time picker is never rebuilt while it's open.
       '<div class="remind-more" data-r-more'+(R.remind?'':' hidden')+'>'+
         '<div class="time-row"><input type="time" class="input" data-r-time value="'+esc(R.time)+'" aria-label="Reminder time"></div>'+
-        // A plain link, so it opens the same way everywhere, including from the home-screen app.
-        '<a class="btn block-btn" data-r-gcal target="_blank" rel="noopener" href="'+esc(gcalUrl(draftR(R),R.ctx))+'" style="margin-top:10px">'+I.cal+'Add to Google Calendar</a>'+
-        '<p class="hint">Stoa can\'t notify you by itself. This opens Google Calendar with the goal filled in for <span data-r-at>'+esc(fmtTime(R.time))+'</span>'+(R.freq==="once"?"":", repeating on the same days")+'. Tap Save there and Google reminds you, even when Stoa is closed. It uses your calendar\'s default notification, usually 30 minutes before, which you can change on that screen. <button class="link" data-r-cal>Use iPhone Calendar instead</button></p>'+
+        (pushOn
+          // Stoa sends the notification itself; the calendar is only an extra.
+          ?'<p class="hint">Stoa will notify you at <span data-r-at>'+esc(fmtTime(R.time))+'</span>, even when it\'s closed. <a class="link" data-r-gcal target="_blank" rel="noopener" href="'+esc(gcalUrl(draftR(R),R.ctx))+'">Also add to Google Calendar</a></p>'
+          :(pushCapable?'<button class="btn block-btn" data-push-on style="margin-top:10px">'+I.bell+'Turn on Stoa notifications</button>':'')+
+            // A plain link, so it opens the same way everywhere, including from the home-screen app.
+            '<a class="btn block-btn" data-r-gcal target="_blank" rel="noopener" href="'+esc(gcalUrl(draftR(R),R.ctx))+'" style="margin-top:10px">'+I.cal+'Add to Google Calendar</a>'+
+            '<p class="hint">'+(pushCapable?'Turn on notifications and Stoa reminds you itself. Or use':'To be notified by Stoa itself, open it from its home-screen icon and turn on notifications in Settings. Until then, use')+
+              ' Google Calendar: it opens with the goal filled in for <span data-r-at>'+esc(fmtTime(R.time))+'</span>'+(R.freq==="once"?"":", repeating on the same days")+', and reminds you with its default notification, usually 30 minutes before. <button class="link" data-r-cal>Use iPhone Calendar instead</button></p>')+
       '</div>'+
     '</div>'+
     '<div class="sheet-actions"><button class="btn primary block-btn" data-r-save>'+saveLabel(R)+'</button>'+(R.gid&&R.ctx===TODAY&&!R.gdone?'<button class="btn block-btn" data-r-move>Move to tomorrow</button>':'')+'<button class="btn danger block-btn" data-r-delete>Remove from saved goals</button></div>';
@@ -1489,11 +1499,12 @@ function openSettings(){
     '<label class="field"><span>Your name</span><input class="input" data-s-name maxlength="40" value="'+esc(S.profile.name)+'" placeholder="What should Stoa call you?" autocomplete="given-name"></label>'+
     '<div class="field"><span class="field-label">Appearance</span><div class="seg" role="radiogroup" aria-label="Appearance">'+
       [["system","Match phone"],["light","Light"],["dark","Dark"]].map(t=>'<button role="radio" aria-checked="'+(S.settings.theme===t[0])+'" data-s-theme="'+t[0]+'">'+t[1]+'</button>').join("")+'</div></div>'+
+    '<div class="field"><span class="field-label">Notifications</span><div data-push-box>'+pushBox()+'</div></div>'+
     '<div class="field"><span class="field-label">Goals and reminders</span>'+
       '<button class="btn block-btn" data-open-saved>Manage saved goals</button>'+
       (withTime?'<button class="btn block-btn" data-cal-all style="margin-top:8px">'+I.cal+'Add all repeating reminders to Calendar</button>':'')+'</div>'+
     '<div class="field"><span class="field-label">Your data</span>'+
-      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. Nothing is sent anywhere. If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
+      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. Your journal and goals are never sent anywhere; if you turn on notifications, only the reminder times are. If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
       '<div class="btn-row"><button class="btn" data-export>'+I.down+'Export backup</button><label class="btn">'+I.up+'Import backup<input type="file" accept="application/json,.json" hidden data-import></label></div></div>');
 }
 
@@ -1672,6 +1683,99 @@ function themeFade(){
 }
 let tt;
 function toast(msg){const el=$("#toast");el.textContent=msg;el.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("show"),2800);}
+
+/* =========================================================
+   Notifications
+   A small server sends a push when a reminder is due. It is given this phone's push address and
+   the reminder times, nothing else: the goal names stay here, and the service worker looks them
+   up when the push arrives.
+   ========================================================= */
+const PUSH_URL="https://stoa-push.stoa-push.workers.dev";
+const PUSH_KEY="BCh9gmwHAXRG2uAqKhOcq4qL63MwMIcDOSzY-AiJRBfva9K_Nu8PY2TfNDAGgSZJZPury4u8xXmZsgVj5MwEOQw";
+const PUSH_SENT="stoa.push.sent"; // the last thing the server was told, so it is only told again on a change
+// iPhone only offers this to an app opened from the home screen (iOS 16.4 or later).
+const pushCapable=location.protocol==="https:"&&"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window;
+let pushOn=false,pushT=null,pushNames="";
+const pushSub=async()=>pushCapable?(await navigator.serviceWorker.ready).pushManager.getSubscription():null;
+const pushPost=(path,data)=>fetch(PUSH_URL+path,{method:"POST",headers:{"Content-Type":"application/json"},body:typeof data==="string"?data:JSON.stringify(data)});
+// When each reminder should fire. A repeating goal already ticked off today is skipped for today.
+function reminderTimes(){
+  const out=[],today=getDay(TODAY);
+  S.routines.forEach(r=>{
+    if(!r.time)return;
+    if(r.freq==="once"){
+      for(const k in S.days)if(k>=TODAY&&S.days[k].goals.some(g=>g.rid===r.id&&!g.done))out.push({id:r.id,time:r.time,freq:"once",date:k});
+      return;
+    }
+    const o={id:r.id,time:r.time,freq:r.freq},g=today.goals.find(x=>x.rid===r.id);
+    if(r.freq==="custom")o.days=r.days;
+    if(g&&g.done)o.skip=TODAY;
+    out.push(o);
+  });
+  return out;
+}
+async function pushSync(force){
+  try{
+    const sub=await pushSub();
+    pushOn=!!sub&&Notification.permission==="granted";
+    if(!pushOn)return false;
+    // Goal names for the service worker to read; they never leave the phone.
+    const names={};S.routines.forEach(r=>{if(r.time)names[r.id]=r.text;});
+    const json=JSON.stringify(names);
+    if(json!==pushNames){
+      await (await caches.open("stoa-notify")).put("./reminders.json",new Response(json,{headers:{"Content-Type":"application/json"}}));
+      pushNames=json;
+    }
+    const body=JSON.stringify({sub:sub.toJSON(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC",reminders:reminderTimes()});
+    if(!force&&localStorage.getItem(PUSH_SENT)===body)return true;
+    if(!(await pushPost("/sync",body)).ok)return false;
+    localStorage.setItem(PUSH_SENT,body);
+    return true;
+  }catch(e){return false;}
+}
+function pushSoon(){if(!pushOn)return;clearTimeout(pushT);pushT=setTimeout(pushSync,1500);}
+// Redraw whichever sheet is showing the notification controls.
+function pushRefresh(){
+  if(editR&&sheetOpen[2])renderRoutine();
+  else{const box=$("[data-push-box]");if(box)box.innerHTML=pushBox();}
+}
+function pushBox(){
+  if(!pushCapable)return '<p class="hint" style="margin:0">To get reminders as notifications, open Stoa from its home-screen icon (an iPhone needs iOS 16.4 or later), then come back here.</p>';
+  if(pushOn)return '<p class="hint" style="margin:0 0 12px">On for this phone. A goal with a reminder time notifies you then, even when Stoa is closed.</p>'+
+    '<div class="btn-row"><button class="btn" data-push-test>Send a test</button><button class="btn" data-push-off>Turn off</button></div>';
+  return '<button class="btn block-btn" data-push-on>'+I.bell+'Turn on notifications</button>'+
+    '<p class="hint">Your phone will ask for permission. Only the reminder times go to the notification server, never what your goals say.</p>';
+}
+async function pushEnable(){
+  if(!pushCapable){toast("Open Stoa from its home-screen icon to turn on notifications.");return;}
+  try{
+    if(await Notification.requestPermission()!=="granted"){toast("Notifications are blocked. Allow them for Stoa in your phone's Settings.");return;}
+    const reg=await navigator.serviceWorker.ready;
+    if(!(await reg.pushManager.getSubscription())){
+      const raw=atob(PUSH_KEY.replace(/-/g,"+").replace(/_/g,"/"));
+      await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:Uint8Array.from(raw,c=>c.charCodeAt(0))});
+    }
+    toast(await pushSync(true)?"Notifications are on.":"Couldn't reach the notification server. Try again when you're online.");
+  }catch(e){toast("Couldn't turn notifications on.");}
+  pushRefresh();
+}
+async function pushDisable(){
+  try{
+    const sub=await pushSub();
+    if(sub){pushPost("/unsub",{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe();}
+  }catch(e){}
+  pushOn=false;localStorage.removeItem(PUSH_SENT);
+  toast("Notifications are off.");pushRefresh();
+}
+async function pushTest(){
+  try{
+    const sub=await pushSub();
+    if(!sub||!(await pushSync(true))){toast("Couldn't reach the notification server.");return;}
+    const r=await (await pushPost("/test",{endpoint:sub.endpoint})).json();
+    let why="";try{why=JSON.parse(r.detail).reason||"";}catch(e){}
+    toast(r.ok?"Test sent. It should arrive in a few seconds.":"The test didn't go through ("+[r.status||"no answer",why].filter(Boolean).join(", ")+").");
+  }catch(e){toast("Couldn't send the test.");}
+}
 
 /* =========================================================
    Celebrations
@@ -1855,7 +1959,7 @@ document.addEventListener("click",e=>{
   if(t.hasAttribute("data-r-save")){
     const R=editR,r=commitRoutine();
     if(r){
-      const cal=calPending(R);
+      const cal=calPending(R)&&!pushOn;
       toast("Goal saved");closeSheet(2);
       if(cal)openGcal(r,R.ctx);
     }
@@ -1923,6 +2027,9 @@ document.addEventListener("click",e=>{
   if(t.hasAttribute("data-open-settings")){openSettings();return;}
   if(ds.sTheme){S.settings.theme=ds.sTheme;save();themeFade();applyTheme();$$("[data-s-theme]").forEach(b=>b.setAttribute("aria-checked",b.dataset.sTheme===ds.sTheme));return;}
   if(t.hasAttribute("data-export")){exportData();return;}
+  if(t.hasAttribute("data-push-on")){pushEnable();return;}
+  if(t.hasAttribute("data-push-off")){pushDisable();return;}
+  if(t.hasAttribute("data-push-test")){pushTest();return;}
 
   // calendar nav
   if(ds.cal){cal.m+=+ds.cal;if(cal.m<0){cal.m=11;cal.y--;}if(cal.m>11){cal.m=0;cal.y++;}renderCal();const g=$(".cal");if(g)g.classList.add("fade");return;}
@@ -2039,6 +2146,7 @@ if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catc
 if("serviceWorker" in navigator&&location.protocol==="https:"){
   window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 }
+if(pushCapable)pushSync().then(pushRefresh);
 })();
 </script>
 </body>
