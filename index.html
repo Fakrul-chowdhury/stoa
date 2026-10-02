@@ -165,6 +165,27 @@ textarea::placeholder,input::placeholder{color:var(--muted);opacity:.7}
 .num-row .input{width:120px;text-align:center}
 input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--accent)}
 
+/* Swipe a goal: right to tick it off, left to send it to tomorrow */
+.goal{position:relative;touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.goal>*{position:relative;z-index:1;transform:translateX(var(--sx,0))}
+.goal-prog{transition:transform .3s var(--ease)}
+.goal.swiping,.goal[data-swipe]{overflow:hidden}
+.goal.swiping>*{transform:translateX(var(--sx,0))!important;transition:none!important}
+.goal::before{content:"";position:absolute;inset:3px 0;border-radius:12px;background:var(--accent);opacity:calc(var(--sp,0)*.92);pointer-events:none}
+.goal[data-swipe="move"]::before{background:var(--line-strong)}
+.goal[data-swipe]::after{position:absolute;top:50%;transform:translateY(-50%);font-size:14px;font-weight:700;color:#fff;opacity:var(--sp,0);pointer-events:none;transition:transform .2s var(--spring)}
+.goal[data-swipe="done"]::after{content:"Done";left:16px}
+.goal[data-swipe="step"]::after{content:"+1";left:16px}
+.goal[data-swipe="move"]::after{content:"Tomorrow";right:16px}
+.goal.armed::after{transform:translateY(-50%) scale(1.18)}
+.goal.flash::before{animation:goal-flash .8s var(--ease)}
+@keyframes goal-flash{from{opacity:.55}to{opacity:0}}
+.bar.bump{animation:bar-bump .4s var(--spring)}
+@keyframes bar-bump{50%{transform:scaleY(1.7)}}
+.swipe-hint{margin:10px 0 0}
+#fx{position:fixed;inset:0;z-index:90;pointer-events:none;overflow:hidden}
+#fx i{position:absolute;display:block;border-radius:2px}
+
 /* Long-term goals */
 .lg{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:12px}
 .lg-main{display:block;width:100%;text-align:left}
@@ -525,7 +546,7 @@ function load(){
   for(const k in (raw.days||{}))if(KEY_RE.test(k))days[k]=cleanDay(raw.days[k]);
   return {
     profile:{name:raw.profile&&typeof raw.profile.name==="string"?raw.profile.name:"",onboarded:!!(raw.profile&&raw.profile.onboarded)},
-    settings:{theme:raw.settings&&["system","light","dark"].includes(raw.settings.theme)?raw.settings.theme:"system"},
+    settings:{theme:raw.settings&&["system","light","dark"].includes(raw.settings.theme)?raw.settings.theme:"system",swiped:!!(raw.settings&&raw.settings.swiped)},
     days,
     routines:(raw.routines||[]).map(cleanRoutine).filter(r=>r.text),
     quotes:(raw.quotes||[]).map(cleanQuote).filter(q=>q.text),
@@ -621,6 +642,30 @@ function addGoalText(k,text){
   mutate(k,d=>{d.goals.push(newGoal(r));});
   return true;
 }
+function tickGoal(k,id,li){
+  let all=false,now=false;
+  mutate(k,d=>{
+    const g=d.goals.find(x=>x.id===id);if(!g)return;
+    if(!g.target)g.done=!g.done;
+    else if(g.done){g.prog=Math.min(g.was||0,g.target-1);g.done=false;} // back to where it was before the tick
+    else{g.was=g.prog;g.prog=g.target;g.done=true;}
+    now=g.done;all=g.done&&d.goals.every(x=>x.done);
+  });
+  if(now)goalFx(li);
+  if(all&&k===TODAY){toast("All of today's goals done. Nice work.");confetti();}
+}
+function stepGoal(k,id,by,li){
+  let all=false,now=false,moved=false;
+  mutate(k,d=>{
+    const g=d.goals.find(x=>x.id===id);if(!g||!g.target)return;
+    const was=g.done,p=g.prog;
+    g.prog=clamp(g.prog+by,g.target);g.done=g.prog>=g.target;
+    moved=g.prog>p;now=!was&&g.done;all=now&&d.goals.every(x=>x.done);
+  });
+  if(now)goalFx(li);
+  else if(moved&&li){const b=$(".bar",li);if(b){b.classList.remove("bump");void b.offsetWidth;b.classList.add("bump");}}
+  if(all&&k===TODAY){toast("All of today's goals done. Nice work.");confetti();}
+}
 // Carry unfinished goals from today into tomorrow, keeping any progress made.
 function moveToTomorrow(ids){
   const tm=tomorrowKey(),left=getDay(TODAY).goals.filter(g=>!g.done&&(!ids||ids.includes(g.id)));
@@ -662,7 +707,7 @@ function goalsHTML(k,title,sub){
     '<ul class="goal-list" data-goal-list="'+k+'"></ul>'+
     '<div class="goal-add"><input data-goal-input="'+k+'" placeholder="Add a goal" maxlength="300" enterkeyhint="done" autocomplete="off" aria-label="New goal"><button class="btn-add" data-add-goal="'+k+'">Add</button></div>'+
     '<div class="chips" data-chips="'+k+'"></div>'+
-    (k===TODAY&&!sub?'<button class="link move" data-move="'+k+'" hidden></button>':'')+
+    (k===TODAY&&!sub?'<p class="hint swipe-hint" data-swipe-hint hidden>Swipe a goal right to tick it off, left to move it to tomorrow.</p><button class="link move" data-move="'+k+'" hidden></button>':'')+
   '</section>';
 }
 function editorHTML(k,hero){
@@ -780,6 +825,7 @@ function updateGoals(k){
     old.forEach(li=>slideOut(li));
   });
   $$('[data-goal-count="'+k+'"]').forEach(el=>el.textContent=n?done+" of "+n+" done":"");
+  if(k===TODAY)$$("[data-swipe-hint]").forEach(h=>h.hidden=!n||S.settings.swiped);
   $$('[data-move="'+k+'"]').forEach(b=>{const left=n-done;b.hidden=!left;b.textContent="Move "+left+" unfinished to tomorrow";});
   const inDay=new Set(d.goals.map(g=>g.rid).filter(Boolean));
   const avail=S.routines.filter(r=>!inDay.has(r.id)).sort((a,b)=>b.lastUsed-a.lastUsed).slice(0,12);
@@ -1455,6 +1501,99 @@ let tt;
 function toast(msg){const el=$("#toast");el.textContent=msg;el.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("show"),2800);}
 
 /* =========================================================
+   Celebrations
+   ========================================================= */
+const FX_COLORS=["var(--accent)","var(--ink)","var(--m4)","var(--muted)"];
+function fxLayer(){let l=$("#fx");if(!l){l=document.createElement("div");l.id="fx";l.setAttribute("aria-hidden","true");document.body.appendChild(l);}return l;}
+function fxPiece(css,frames,opts,life){
+  const el=document.createElement("i");el.style.cssText=css;fxLayer().appendChild(el);
+  const a=el.animate(frames,opts),done=()=>el.remove();
+  a.onfinish=done;setTimeout(done,life); // the timer covers a backgrounded app, where animations pause
+}
+// A small pop of dots out of one point.
+function burst(x,y,count){
+  if(reduceMotion.matches||!document.body.animate)return;
+  for(let i=0;i<count;i++){
+    const ang=Math.PI*2*i/count+Math.random()*.6,dist=34+Math.random()*38,size=5+Math.random()*5;
+    fxPiece("left:"+x+"px;top:"+y+"px;width:"+size+"px;height:"+size+"px;background:"+FX_COLORS[i%3]+(i%2?";border-radius:50%":""),
+      [{transform:"translate(-50%,-50%)",opacity:1},{transform:"translate(calc(-50% + "+Math.cos(ang)*dist+"px),calc(-50% + "+(Math.sin(ang)*dist+16)+"px)) scale(.5) rotate("+(Math.random()*240-120)+"deg)",opacity:0}],
+      {duration:620+Math.random()*280,easing:"cubic-bezier(.15,.7,.3,1)"},1300);
+  }
+}
+// Pieces falling down the whole screen, for the bigger wins.
+function confetti(){
+  if(reduceMotion.matches||!document.body.animate)return;
+  const w=innerWidth,h=innerHeight;
+  for(let i=0;i<48;i++){
+    const size=5+Math.random()*5;
+    fxPiece("left:"+Math.random()*w+"px;top:-14px;width:"+size+"px;height:"+size*(i%3?1:1.8)+"px;background:"+FX_COLORS[i%4]+(i%4?"":";border-radius:50%"),
+      [{transform:"translate(0,0)",opacity:1},{transform:"translate("+(Math.random()-.5)*140+"px,"+h*(.55+Math.random()*.4)+"px) rotate("+(Math.random()*720-360)+"deg)",opacity:0}],
+      {duration:1300+Math.random()*900,delay:Math.random()*260,easing:"cubic-bezier(.2,.6,.4,1)",fill:"backwards"},3000);
+  }
+  if(navigator.vibrate)try{navigator.vibrate([14,40,22]);}catch(e){}
+}
+function goalFx(li){
+  if(!li)return;
+  if(navigator.vibrate)try{navigator.vibrate(12);}catch(e){}
+  if(reduceMotion.matches)return;
+  li.classList.remove("flash");void li.offsetWidth;li.classList.add("flash");
+  // Measured from the row, not the tick: after a swipe the tick is still sliding back into place.
+  const r=li.getBoundingClientRect(),c=li.firstChild;
+  burst(r.left+c.offsetLeft+c.offsetWidth/2,r.top+c.offsetTop+c.offsetHeight/2,16);
+}
+
+/* =========================================================
+   Swiping goals
+   ========================================================= */
+const SWIPE_GO=72; // how far a goal has to be dragged before letting go acts
+let swipe=null,swipedAt=0;
+document.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse"&&e.button!==0)return;
+  const li=e.target.closest&&e.target.closest("li.goal");
+  if(!li||li._leaving)return;
+  const k=li.firstChild.dataset.key,g=getDay(k).goals.find(x=>x.id===li.dataset.gid);
+  if(!g)return;
+  swipe={li,k,g,id:e.pointerId,x:e.clientX,y:e.clientY,on:false};
+});
+document.addEventListener("pointermove",e=>{
+  const s=swipe;if(!s||e.pointerId!==s.id)return;
+  const dx=e.clientX-s.x,dy=e.clientY-s.y;
+  if(!s.on){
+    if(Math.abs(dy)>10&&Math.abs(dy)>Math.abs(dx)){swipe=null;return;} // it's a scroll
+    if(Math.abs(dx)<10)return;
+    s.on=true;s.li.classList.add("swiping");
+    try{s.li.setPointerCapture(e.pointerId);}catch(err){}
+  }
+  // Right ticks it off (or adds one step); left sends today's goal to tomorrow. A finished goal only gives a little.
+  const ok=!s.g.done&&(dx>0||s.k===TODAY),x=ok?dx:dx*.15;
+  s.li.dataset.swipe=dx<0?"move":s.g.target?"step":"done";
+  s.li.style.setProperty("--sx",x+"px");
+  s.li.style.setProperty("--sp",ok?Math.min(1,Math.abs(x)/SWIPE_GO):0);
+  s.li.classList.toggle("armed",ok&&Math.abs(dx)>=SWIPE_GO);
+});
+function endSwipe(e,cancelled){
+  const s=swipe;if(!s||e.pointerId!==s.id)return;
+  swipe=null;
+  if(!s.on)return;
+  swipedAt=Date.now();
+  const li=s.li,go=!cancelled&&li.classList.contains("armed"),dir=li.dataset.swipe;
+  li.classList.remove("swiping","armed");
+  const settle=()=>{li.style.removeProperty("--sx");li.style.removeProperty("--sp");setTimeout(()=>{if(!li.classList.contains("swiping"))delete li.dataset.swipe;},320);};
+  if(go&&!S.settings.swiped){S.settings.swiped=true;save();}
+  if(go&&dir==="move"){
+    li.style.setProperty("--sx",-(li.offsetWidth+24)+"px");
+    setTimeout(()=>{if(moveToTomorrow([s.g.id]))toast("Moved to tomorrow");else settle();},200);
+    return;
+  }
+  settle();
+  if(go){if(dir==="step")stepGoal(s.k,s.g.id,1,li);else tickGoal(s.k,s.g.id,li);}
+}
+document.addEventListener("pointerup",e=>endSwipe(e,false));
+document.addEventListener("pointercancel",e=>endSwipe(e,true));
+// Letting go at the end of a swipe must not also count as a tap on whatever is under the finger.
+window.addEventListener("click",e=>{if(Date.now()-swipedAt<350){e.stopImmediatePropagation();e.preventDefault();}},true);
+
+/* =========================================================
    Events
    ========================================================= */
 document.addEventListener("click",e=>{
@@ -1471,29 +1610,8 @@ document.addEventListener("click",e=>{
   if(ds.energy){const k=ds.key,v=+ds.energy;mutate(k,d=>{d.energy=d.energy===v?0:v;});return;}
 
   // goals
-  if(ds.toggle){
-    const k=ds.key;let all=false;
-    mutate(k,d=>{
-      const g=d.goals.find(x=>x.id===ds.toggle);if(!g)return;
-      if(!g.target)g.done=!g.done;
-      else if(g.done){g.prog=Math.min(g.was||0,g.target-1);g.done=false;} // back to where it was before the tick
-      else{g.was=g.prog;g.prog=g.target;g.done=true;}
-      all=g.done&&d.goals.every(x=>x.done);
-    });
-    if(all&&k===TODAY)toast("All of today's goals done. Nice work.");
-    return;
-  }
-  if(ds.step){
-    const k=ds.key;let all=false;
-    mutate(k,d=>{
-      const g=d.goals.find(x=>x.id===ds.gid);if(!g||!g.target)return;
-      const was=g.done;
-      g.prog=clamp(g.prog+ +ds.step,g.target);g.done=g.prog>=g.target;
-      all=!was&&g.done&&d.goals.every(x=>x.done);
-    });
-    if(all&&k===TODAY)toast("All of today's goals done. Nice work.");
-    return;
-  }
+  if(ds.toggle){tickGoal(ds.key,ds.toggle,t.closest("li.goal"));return;}
+  if(ds.step){stepGoal(ds.key,ds.gid,+ds.step,t.closest("li.goal"));return;}
   if(ds.del){
     // Clearing a finished goal keeps its credit in Insights; removing an unfinished one leaves no trace.
     mutate(ds.key,d=>{const g=d.goals.find(x=>x.id===ds.del);if(g&&g.done)d.gone=(d.gone||0)+1;d.goals=d.goals.filter(x=>x.id!==ds.del);});
@@ -1518,7 +1636,7 @@ document.addEventListener("click",e=>{
   if(ds.lstep){
     const g=S.longs.find(x=>x.id===ds.lid);if(!g)return;
     setLongProg(g,g.prog+ +ds.lstep*(g.pct?5:1));save();
-    if(g.doneAt){toast("Goal complete. Nice work.");renderLongs();}
+    if(g.doneAt){toast("Goal complete. Nice work.");renderLongs();confetti();}
     else{const card=t.closest(".lg");$(".bar i",card).style.width=(g.prog/g.target*100)+"%";$(".lg-meta",card).textContent=longMeta(g);}
     return;
   }
@@ -1531,14 +1649,14 @@ document.addEventListener("click",e=>{
   }
   if(t.hasAttribute("data-l-save")&&editL){
     const was=editL.done,g=commitLong();
-    if(g){toast(g.doneAt&&!was?"Goal complete. Nice work.":"Goal saved");closeSheet(2);}
+    if(g){toast(g.doneAt&&!was?"Goal complete. Nice work.":"Goal saved");closeSheet(2);if(g.doneAt&&!was)confetti();}
     return;
   }
   if(t.hasAttribute("data-l-done")&&editL){
     const max=draftMax(editL),was=editL.done;
     if(!max){toast("Set a target of 2 or more.");return;}
     editL.prog=was?Math.min(editL.prog,max-1):max;
-    if(commitLong()){toast(was?"Goal reopened":"Goal complete. Nice work.");closeSheet(2);}
+    if(commitLong()){toast(was?"Goal reopened":"Goal complete. Nice work.");closeSheet(2);if(!was)confetti();}
     return;
   }
   if(t.hasAttribute("data-l-delete")&&editL){
