@@ -194,7 +194,17 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .lg-meta{display:block;margin-top:4px;font-size:14px;color:var(--muted)}
 .lg-meta.due{color:var(--accent)}
 .lg-row{display:flex;align-items:center;gap:12px;margin-top:14px}
-.lg-row .bar{height:10px}
+.lg-slide{position:relative;flex:1;min-width:0;height:40px;padding:0 11px;display:flex;align-items:center;touch-action:pan-y;cursor:grab;border-radius:12px;-webkit-user-select:none;user-select:none}
+.lg-slide .bar{height:10px}
+.lg-slide .bar i{width:calc(var(--p,0)*100%)}
+.lg-knob{position:absolute;top:50%;left:calc(11px + (100% - 22px)*var(--p,0));width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35);transition:left .45s var(--ease),transform .2s var(--ease)}
+.lg-slide.drag{cursor:grabbing}
+.lg-slide.drag .bar i,.lg-slide.drag .lg-knob{transition:none}
+.lg-slide.drag .lg-knob{transform:scale(1.18)}
+.lg-num{display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:14px;color:var(--muted);white-space:nowrap}
+.lg-num input{width:60px;padding:8px 4px;text-align:center;font-size:16px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);outline:none;-moz-appearance:textfield;appearance:textfield;transition:border-color .25s var(--ease)}
+.lg-num input::-webkit-outer-spin-button,.lg-num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.lg-num input:focus{border-color:var(--navy)}
 .lg-tick{width:26px;height:26px;display:grid;place-items:center;flex-shrink:0;border-radius:50%;background:var(--accent)}
 .saved-row .lg-tick svg{width:14px;height:14px;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 
@@ -1019,8 +1029,21 @@ function setLongProg(g,p){
 }
 function longCard(g){
   return '<div class="lg"><button class="lg-main" data-open-long="'+esc(g.id)+'"><span class="lg-title">'+esc(g.text)+'</span><span class="lg-meta'+(g.due&&g.due<TODAY?" due":"")+'">'+esc(longMeta(g))+'</span></button>'+
-    '<div class="lg-row"><button class="step" data-lstep="-1" data-lid="'+esc(g.id)+'" aria-label="Less">&minus;</button><div class="bar"><i style="width:'+(g.prog/g.target*100)+'%"></i></div>'+
-    '<button class="step" data-lstep="1" data-lid="'+esc(g.id)+'" aria-label="More">+</button></div></div>';
+    '<div class="lg-row"><div class="lg-slide" data-lslide="'+esc(g.id)+'" role="slider" tabindex="0" aria-label="Progress" aria-valuemin="0" aria-valuemax="'+g.target+'" aria-valuenow="'+g.prog+'" style="--p:'+g.prog/g.target+'"><div class="bar"><i></i></div><b class="lg-knob"></b></div>'+
+    '<label class="lg-num"><input type="number" inputmode="numeric" min="0" max="'+g.target+'" value="'+g.prog+'" placeholder="0" data-lnum="'+esc(g.id)+'" aria-label="Amount done"><span>'+(g.pct?"%":"of "+g.target)+'</span></label></div></div>';
+}
+// Show a value on a card (while dragging or typing, before it is saved).
+function showLong(card,g,v){
+  const sl=$("[data-lslide]",card),num=$("[data-lnum]",card);
+  sl.style.setProperty("--p",v/g.target);sl.setAttribute("aria-valuenow",v);
+  if(document.activeElement!==num)num.value=v;
+  $(".lg-meta",card).textContent=longMeta(Object.assign({},g,{prog:v}));
+}
+function applyLong(g,v,card){
+  const was=!!g.doneAt;
+  setLongProg(g,v);save();
+  if(g.doneAt&&!was){toast("Goal complete. Nice work.");renderLongs();confetti();return;}
+  showLong(card,g,g.prog);
 }
 function renderLongs(){
   const el=$("#view-goals");
@@ -1076,6 +1099,49 @@ function commitLong(){
   save();
   return g;
 }
+
+/* Drag a long-term goal's bar to set how far along it is */
+let slide=null;
+function slideTo(s,x){
+  const r=s.el.getBoundingClientRect(),f=Math.max(0,Math.min(1,(x-r.left-11)/(r.width-22)));
+  let v=Math.round(f*s.g.target);
+  if(s.g.pct)v=Math.round(v/5)*5; // percent moves in fives; the box takes an exact figure
+  s.val=v;showLong(s.el.closest(".lg"),s.g,v);
+}
+document.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse"&&e.button!==0)return;
+  const el=e.target.closest&&e.target.closest("[data-lslide]");if(!el)return;
+  const g=S.longs.find(x=>x.id===el.dataset.lslide);if(!g)return;
+  slide={el,g,id:e.pointerId,x:e.clientX,y:e.clientY,on:false,val:g.prog};
+});
+document.addEventListener("pointermove",e=>{
+  const s=slide;if(!s||e.pointerId!==s.id)return;
+  if(!s.on){
+    const dx=e.clientX-s.x,dy=e.clientY-s.y;
+    if(Math.abs(dy)>10&&Math.abs(dy)>Math.abs(dx)){slide=null;return;} // it's a scroll
+    if(Math.abs(dx)<6)return;
+    s.on=true;s.el.classList.add("drag");
+    try{s.el.setPointerCapture(e.pointerId);}catch(err){}
+  }
+  slideTo(s,e.clientX);
+});
+function endSlide(e,cancelled){
+  const s=slide;if(!s||e.pointerId!==s.id)return;
+  slide=null;s.el.classList.remove("drag");
+  const card=s.el.closest(".lg");
+  if(cancelled){showLong(card,s.g,s.g.prog);return;}
+  if(!s.on)slideTo(s,e.clientX); // a tap on the bar jumps to that spot
+  applyLong(s.g,s.val,card);
+}
+document.addEventListener("pointerup",e=>endSlide(e,false));
+document.addEventListener("pointercancel",e=>endSlide(e,true));
+document.addEventListener("keydown",e=>{
+  const el=e.target.closest&&e.target.closest("[data-lslide]"),d={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1}[e.key];
+  if(!el||!d)return;
+  const g=S.longs.find(x=>x.id===el.dataset.lslide);if(!g)return;
+  e.preventDefault();applyLong(g,g.prog+d*(g.pct?5:1),el.closest(".lg"));
+});
+document.addEventListener("focusin",e=>{if(e.target.matches&&e.target.matches("[data-lnum]"))e.target.select();});
 
 /* =========================================================
    Quotes
@@ -1633,13 +1699,6 @@ document.addEventListener("click",e=>{
   // long-term goals
   if(t.hasAttribute("data-new-long")){openLong(null);return;}
   if(ds.openLong){openLong(ds.openLong);return;}
-  if(ds.lstep){
-    const g=S.longs.find(x=>x.id===ds.lid);if(!g)return;
-    setLongProg(g,g.prog+ +ds.lstep*(g.pct?5:1));save();
-    if(g.doneAt){toast("Goal complete. Nice work.");renderLongs();confetti();}
-    else{const card=t.closest(".lg");$(".bar i",card).style.width=(g.prog/g.target*100)+"%";$(".lg-meta",card).textContent=longMeta(g);}
-    return;
-  }
   if(ds.lPct&&editL){
     const pct=ds.lPct==="1";if(pct===editL.pct)return;
     const from=draftMax(editL)||10;
@@ -1761,7 +1820,7 @@ document.addEventListener("keydown",e=>{
   if(gi){e.preventDefault();if(addGoalText(gi.dataset.goalInput,gi.value))gi.value="";return;}
   if(e.target.matches("[data-new-routine]")){e.preventDefault();$("[data-add-routine]").click();return;}
   if(e.target.matches("[data-w-name]")){e.preventDefault();finishWelcome(e.target.value);return;}
-  if(e.target.matches("[data-r-text],[data-s-name],[data-l-text],[data-r-target],[data-r-prog],[data-l-target]")){e.preventDefault();e.target.blur();}
+  if(e.target.matches("[data-r-text],[data-s-name],[data-l-text],[data-r-target],[data-r-prog],[data-l-target],[data-lnum]")){e.preventDefault();e.target.blur();}
 });
 
 const saveLabels={};
@@ -1778,6 +1837,12 @@ document.addEventListener("input",e=>{
     return;
   }
   if(el.matches("[data-search]")){renderJournal();return;}
+  if(el.matches("[data-lnum]")){
+    // Typing moves the bar straight away; the figure is saved when the box is left.
+    const g=S.longs.find(x=>x.id===el.dataset.lnum);
+    if(g&&el.value.trim()!=="")showLong(el.closest(".lg"),g,clamp(el.value,g.target));
+    return;
+  }
   if(el.matches("[data-n-text]")){writeNote(el.value);return;}
   if(el.matches("[data-r-text]")&&editR){editR.text=el.value;return;}
   if(el.matches("[data-r-target]")&&editR){editR.target=el.value;return;}
@@ -1800,6 +1865,13 @@ document.addEventListener("change",e=>{
   const el=e.target;
   if(el.matches("[data-r-track]")&&editR){editR.track=el.checked;const m=$("[data-r-trackmore]");if(m){m.hidden=!el.checked;m.classList.toggle("reveal",el.checked);}return;}
   if(el.matches("[data-l-due]")&&editL){editL.due=el.value;return;}
+  if(el.matches("[data-lnum]")){
+    const g=S.longs.find(x=>x.id===el.dataset.lnum);if(!g)return;
+    if(el.value.trim()===""){el.value=g.prog;showLong(el.closest(".lg"),g,g.prog);return;} // left empty: keep what was there
+    const v=clamp(el.value,g.target);
+    el.value=v;applyLong(g,v,el.closest(".lg"));
+    return;
+  }
   // Show or hide in place: rebuilding the sheet here would close the iPhone time picker mid-scroll.
   if(el.matches("[data-r-remind]")&&editR){
     editR.remind=el.checked;
