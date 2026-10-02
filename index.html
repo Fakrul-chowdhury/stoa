@@ -195,6 +195,23 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .lg-meta.due{color:var(--accent)}
 .lg-row{display:flex;align-items:center;gap:12px;margin-top:14px}
 .lg-set{justify-content:space-between;margin-top:4px}
+
+/* Streak goals: a stack of stones that grows the longer the streak runs */
+.sk-main{display:flex;align-items:center;gap:14px}
+.sk-art{flex-shrink:0;line-height:0}
+.sk-body{flex:1;min-width:0}
+.sk-count{display:block;margin-top:2px;font-size:15px;color:var(--muted)}
+.sk-count b{margin-right:3px;font-family:var(--serif);font-size:30px;line-height:1.1;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.sk-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}
+.sk-slip{color:var(--muted);font-weight:500;white-space:nowrap}
+.sk-slip[data-sure]{color:var(--accent);font-weight:600}
+.st{transform-box:fill-box;transform-origin:center}
+.sk.fall .st{animation:stone-fall .65s cubic-bezier(.5,0,.9,.5) forwards;animation-delay:calc((8 - var(--i))*35ms)}
+@keyframes stone-fall{to{transform:translate(calc(var(--dx)*1px),70px) rotate(calc(var(--dx)*4deg));opacity:0}}
+.sk.new .st.top{animation:stone-drop .7s var(--spring)}
+@keyframes stone-drop{from{transform:translateY(-40px);opacity:0}}
+.sk-hero{display:flex;align-items:center;gap:18px;margin-bottom:6px}
+.sk-hero .sk-count b{font-size:44px}
 .lg-set .step{width:38px;height:38px;font-size:20px}
 .lg-slide{position:relative;flex:1;min-width:0;height:40px;padding:0 11px;display:flex;align-items:center;touch-action:pan-y;cursor:grab;border-radius:12px;-webkit-user-select:none;user-select:none}
 .lg-slide .bar{height:10px}
@@ -544,8 +561,14 @@ function cleanRoutine(r){
   return {id:String(r.id||newId()),text:String(r.text||"").slice(0,300),freq:f,days:Array.isArray(r.days)?r.days.filter(d=>d>=0&&d<=6):[],time:/^\d{2}:\d{2}$/.test(r.time||"")?r.time:"",target:cleanTarget(r.target),lastUsed:Number(r.lastUsed)||0,createdAt:Number(r.createdAt)||Date.now()};
 }
 function cleanLong(g){
-  const pct=!!g.pct,target=pct?100:(cleanLongTarget(g.target)||10),c=Number(g.createdAt)||Date.now();
-  const o={id:String(g.id||newId()),text:String(g.text||"").slice(0,300),pct,target,prog:clamp(g.prog,target),due:KEY_RE.test(g.due||"")?g.due:"",createdAt:c,updatedAt:Number(g.updatedAt)||c,doneAt:Number(g.doneAt)||0};
+  const c=Number(g.createdAt)||Date.now(),base={id:String(g.id||newId()),text:String(g.text||"").slice(0,300),createdAt:c,updatedAt:Number(g.updatedAt)||c};
+  if(g.kind==="streak"){
+    // A streak counts the days since `start`. A slip moves `start` to now; `best` keeps the longest run.
+    return Object.assign(base,{kind:"streak",start:Math.min(Number(g.start)||c,Date.now()),best:clamp(g.best,100000),slips:Array.isArray(g.slips)?g.slips.map(Number).filter(Boolean).slice(-200):[],seen:clamp(g.seen,9),
+      pct:false,target:1,prog:0,due:"",doneAt:0});
+  }
+  const pct=!!g.pct,target=pct?100:(cleanLongTarget(g.target)||10);
+  const o=Object.assign(base,{pct,target,prog:clamp(g.prog,target),due:KEY_RE.test(g.due||"")?g.due:"",doneAt:Number(g.doneAt)||0});
   if(o.doneAt)o.prog=target;else if(o.prog>=target)o.doneAt=o.updatedAt;
   return o;
 }
@@ -1046,25 +1069,82 @@ function applyLong(g,v,card){
   if(g.doneAt&&!was){toast("Goal complete. Nice work.");renderLongs();confetti();return;}
   showLong(card,g,g.prog);
 }
+/* Streaks ------------------------------------------------- */
+const STONES=[1,3,7,14,30,60,90,180,365]; // days at which a streak earns its next stone
+const ST_W=[66,58,51,45,39,34,29,25,21],ST_H=[13,12,11,10,10,9,9,8,8],ST_X=[0,2,-2,1,-1,2,-1,1,0];
+const streakDays=g=>Math.max(0,Math.floor((Date.now()-g.start)/864e5));
+const stonesFor=d=>STONES.filter(m=>d>=m).length;
+const dayWord=d=>d+(d===1?" day":" days");
+// The headline figure: whole days, or hours and minutes on the first day.
+function streakBig(g){
+  const ms=Math.max(0,Date.now()-g.start),d=Math.floor(ms/864e5),h=Math.floor(ms/36e5),m=Math.floor(ms/6e4);
+  return d?[d,d===1?"day":"days"]:h?[h,h===1?"hour":"hours"]:[m,m===1?"minute":"minutes"];
+}
+// The stack. Earned stones are solid (the newest in the accent colour); dotted outlines show the
+// next stone to earn and how tall the best run stood.
+function cairn(stones,best,size){
+  const upto=Math.min(9,Math.max(best,stones+1));
+  let y=101,svg='<svg viewBox="0 0 100 106" width="'+size+'" height="'+Math.round(size*1.06)+'" aria-hidden="true"><path d="M14 102.5h72" stroke="var(--line-strong)" stroke-width="2" stroke-linecap="round"/>';
+  for(let i=0;i<upto;i++){
+    const h=ST_H[i],at='cx="'+(50+ST_X[i])+'" cy="'+(y-h/2)+'"',top=i===stones-1;
+    svg+=i<stones
+      ?'<ellipse class="st'+(top?" top":"")+'" style="--i:'+i+';--dx:'+(i%2?16:-16)+'" '+at+' rx="'+ST_W[i]/2+'" ry="'+h/2+'" fill="'+(top?"var(--accent)":"var(--ink)")+'"'+(top?'':' opacity="'+(i%2?.7:.92)+'"')+'/>'
+      :'<ellipse '+at+' rx="'+(ST_W[i]/2-.75)+'" ry="'+(h/2-.75)+'" fill="none" stroke="var(--line-strong)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+    y-=h-1;
+  }
+  return svg+"</svg>";
+}
+function streakCard(g,isNew){
+  const d=streakDays(g),st=stonesFor(d),best=Math.max(g.best,d),next=STONES[st],prev=st?STONES[st-1]:0,big=streakBig(g);
+  const frac=next?Math.max(0,Math.min(1,((Date.now()-g.start)/864e5-prev)/(next-prev))):1;
+  const note=best>d?"Best run "+dayWord(best):g.slips.length?"Your longest run so far":"Since "+new Date(g.start).toLocaleDateString(undefined,{day:"numeric",month:"short"});
+  return '<div class="lg sk'+(isNew?" new":"")+'"><button class="lg-main sk-main" data-open-long="'+esc(g.id)+'"><span class="sk-art">'+cairn(st,stonesFor(best),76)+'</span>'+
+    '<span class="sk-body"><span class="lg-title">'+esc(g.text)+'</span><span class="sk-count"><b>'+big[0]+'</b>'+big[1]+'</span><span class="lg-meta">'+esc(note)+'</span></span></button>'+
+    '<div class="lg-row"><div class="bar"><i style="width:'+frac*100+'%"></i></div></div>'+
+    '<div class="sk-foot"><span class="muted small">'+esc(next?"Next stone at "+dayWord(next)+(next-d>1?", "+(next-d)+" to go":""):"Every stone earned. Keep going.")+'</span>'+
+    '<button class="link sk-slip" data-slip="'+esc(g.id)+'">I slipped</button></div></div>';
+}
+// A slip knocks the stack down and starts the count again; the best run is kept.
+function slipStreak(g,card){
+  const d=streakDays(g);
+  g.best=Math.max(g.best,d);g.slips.push(Date.now());if(g.slips.length>200)g.slips.shift();
+  g.start=Date.now();g.seen=0;g.updatedAt=Date.now();save();
+  toast(d?"Reset after "+dayWord(d)+". Begin again.":"Reset. Begin again.");
+  const redraw=()=>{if(currentTab==="goals")renderLongs();};
+  if(card&&!reduceMotion.matches){card.classList.add("fall");setTimeout(redraw,760);}else redraw();
+}
+
 function renderLongs(){
   const el=$("#view-goals");
-  const act=S.longs.filter(g=>!g.doneAt).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999")||a.createdAt-b.createdAt);
+  // A streak that has reached a new stone since it was last looked at gets its moment.
+  let earned=null,changed=false;
+  S.longs.forEach(g=>{
+    if(g.kind!=="streak")return;
+    const st=stonesFor(streakDays(g));
+    if(st>g.seen)earned=g;
+    if(st!==g.seen){g.seen=st;changed=true;}
+  });
+  if(changed)save();
+  if(earned){toast(dayWord(STONES[earned.seen-1])+" on "+earned.text+". A new stone.");confetti();}
+  const rank=g=>g.kind==="streak"?"0":"1"+(g.due||"9999");
+  const act=S.longs.filter(g=>!g.doneAt).sort((a,b)=>rank(a).localeCompare(rank(b))||a.createdAt-b.createdAt);
   const fin=S.longs.filter(g=>g.doneAt).sort((a,b)=>b.doneAt-a.doneAt);
   const html='<header class="page-head"><div><h1>Goals</h1><p class="muted">'+(S.longs.length?"Long-term, "+act.length+" in progress"+(fin.length?", "+fin.length+" completed":""):"Long-term")+'</p></div><button class="btn primary" data-new-long>'+I.plus+'New goal</button></header>';
   if(!S.longs.length){
-    el.innerHTML=html+'<div class="empty"><p>The bigger things you\'re working toward: a project, a habit, a number to hit. Set a target and move the bar as you go.</p><button class="btn primary" data-new-long>Add your first goal</button></div>';
+    el.innerHTML=html+'<div class="empty"><p>The bigger things you\'re working toward: a project, a number to hit, or a streak you want to keep, like days without smoking.</p><button class="btn primary" data-new-long>Add your first goal</button></div>';
     return;
   }
-  el.innerHTML=html+(act.map(longCard).join("")||'<p class="muted">Everything here is done. Add the next one when you\'re ready.</p>')+
+  el.innerHTML=html+(act.map(g=>g.kind==="streak"?streakCard(g,g===earned):longCard(g)).join("")||'<p class="muted">Everything here is done. Add the next one when you\'re ready.</p>')+
     (fin.length?'<h2 class="month">Completed</h2><div>'+fin.map(g=>
       '<button class="saved-row" data-open-long="'+esc(g.id)+'"><span class="lg-tick">'+I.check+'</span><span class="t"><b>'+esc(g.text)+'</b><span>'+esc("Completed "+new Date(g.doneAt).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}))+'</span></span>'+I.chev+'</button>').join("")+'</div>':'');
 }
 
-let editL=null; // working copy {id, text, pct, target, prog, due, done}
+let editL=null; // working copy {id, kind, text, pct, target, prog, due, done, since}
 const draftMax=L=>L.pct?100:cleanLongTarget(L.target);
 function openLong(id){
   const g=id?S.longs.find(x=>x.id===id):null;
-  editL=g?{id:g.id,text:g.text,pct:g.pct,target:g.target,prog:g.prog,due:g.due,done:!!g.doneAt}:{id:null,text:"",pct:false,target:10,prog:0,due:"",done:false};
+  editL=g?{id:g.id,kind:g.kind==="streak"?"streak":"prog",text:g.text,pct:g.pct,target:g.target,prog:g.prog,due:g.due,done:!!g.doneAt,since:g.kind==="streak"?keyOf(new Date(g.start)):TODAY}
+    :{id:null,kind:"prog",text:"",pct:false,target:10,prog:0,due:"",done:false,since:TODAY};
   renderLong();
   if(!g)setTimeout(()=>{const t=$("[data-l-text]");if(t)t.focus();},350);
 }
@@ -1073,17 +1153,32 @@ function syncLong(){
   now.textContent=L.pct?L.prog+"%":L.prog+" of "+(draftMax(L)||"?");
 }
 function renderLong(){
-  const L=editL,max=draftMax(L)||10;
+  const L=editL,max=draftMax(L)||10,streak=L.kind==="streak";
   if(L.prog>max)L.prog=max;
-  const html=sheetHead(L.id?"Long-term goal":"New long-term goal")+
-    '<label class="field"><span>Goal</span><input class="input" data-l-text maxlength="300" value="'+esc(L.text)+'" placeholder="Apply to 10 jobs, read 12 books…"></label>'+
-    '<div class="field"><span class="field-label">Measure it by</span><div class="seg" role="radiogroup" aria-label="Measure it by">'+
-      '<button role="radio" aria-checked="'+!L.pct+'" data-l-pct="0">A number</button><button role="radio" aria-checked="'+L.pct+'" data-l-pct="1">Percent</button></div>'+
-      (L.pct?'':'<label class="num-row"><span>Target</span><input class="input" type="number" inputmode="numeric" min="2" data-l-target value="'+esc(L.target)+'"></label>')+'</div>'+
-    '<div class="field"><span class="field-label">Progress: <span data-l-now></span></span><input type="range" min="0" max="'+max+'" step="1" value="'+L.prog+'" data-l-prog aria-label="Progress"></div>'+
-    '<label class="field"><span>Finish by (optional)</span><input class="input" type="date" data-l-due value="'+esc(L.due)+'"></label>'+
+  const g=L.id?S.longs.find(x=>x.id===L.id):null;
+  // The kind is chosen when a goal is made; an existing goal keeps its kind.
+  const measure='<div class="field"><span class="field-label">Measure it by</span><div class="seg" role="radiogroup" aria-label="Measure it by">'+
+      '<button role="radio" aria-checked="'+(!streak&&!L.pct)+'" data-l-pct="0">A number</button><button role="radio" aria-checked="'+(!streak&&L.pct)+'" data-l-pct="1">Percent</button>'+
+      (L.id?'':'<button role="radio" aria-checked="'+streak+'" data-l-pct="s">A streak</button>')+'</div>'+
+      (streak?'<p class="hint">Counts the days since you last slipped. For something you\'re quitting, or something you want to do every single day.</p>'
+        :L.pct?'':'<label class="num-row"><span>Target</span><input class="input" type="number" inputmode="numeric" min="2" data-l-target value="'+esc(L.target)+'"></label>')+'</div>';
+  let html=sheetHead(streak&&L.id?"Streak":L.id?"Long-term goal":"New long-term goal");
+  if(streak&&g){
+    const d=streakDays(g),big=streakBig(g),hrs=Math.floor((Date.now()-g.start)/36e5)%24;
+    html+='<div class="sk-hero"><span class="sk-art">'+cairn(stonesFor(d),stonesFor(Math.max(g.best,d)),132)+'</span><div><span class="sk-count"><b>'+big[0]+'</b>'+big[1]+'</span>'+
+        '<p class="muted small" style="margin:4px 0 0">'+esc((d?"and "+hrs+(hrs===1?" hour":" hours")+", since ":"Since ")+new Date(g.start).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}))+'</p></div></div>'+
+      '<div class="stats" style="margin-bottom:22px"><div class="stat"><b>'+Math.max(g.best,d)+'</b><span>Best run, in days</span></div><div class="stat"><b>'+g.slips.length+'</b><span>'+(g.slips.length===1?"Slip":"Slips")+'</span></div></div>';
+  }
+  html+='<label class="field"><span>Goal</span><input class="input" data-l-text maxlength="300" value="'+esc(L.text)+'" placeholder="'+(streak?"Quit smoking, no sugar, train every day…":"Apply to 10 jobs, read 12 books…")+'"></label>'+
+    (streak&&L.id?'':measure)+
+    (streak
+      ?'<label class="field"><span>Streak started</span><input class="input" type="date" data-l-since max="'+TODAY+'" value="'+esc(L.since)+'"></label>'+
+        '<p class="hint" style="margin:-12px 0 22px">A stone is added at 1, 3, 7, 14, 30, 60, 90, 180 and 365 days. A slip clears the stack, and a dotted outline shows how tall your best run stood.</p>'
+      :'<div class="field"><span class="field-label">Progress: <span data-l-now></span></span><input type="range" min="0" max="'+max+'" step="1" value="'+L.prog+'" data-l-prog aria-label="Progress"></div>'+
+        '<label class="field"><span>Finish by (optional)</span><input class="input" type="date" data-l-due value="'+esc(L.due)+'"></label>')+
     '<div class="sheet-actions"><button class="btn primary block-btn" data-l-save>Save</button>'+
-      (L.id?'<button class="btn block-btn" data-l-done>'+(L.done?"Reopen goal":"Mark complete")+'</button><button class="btn danger block-btn" data-l-delete>Delete goal</button>':'')+'</div>';
+      (!L.id?'':streak?'<button class="btn block-btn" data-slip="'+esc(L.id)+'">I slipped</button>':'<button class="btn block-btn" data-l-done>'+(L.done?"Reopen goal":"Mark complete")+'</button>')+
+      (L.id?'<button class="btn danger block-btn" data-l-delete>Delete goal</button>':'')+'</div>';
   if(sheetOpen[2]){const sh=$("#sheet2"),st=sh.scrollTop;sh.innerHTML='<div class="grab"></div>'+html;sh.scrollTop=st;}
   else openSheet(2,html);
   syncLong();
@@ -1092,6 +1187,17 @@ function commitLong(){
   const L=editL;if(!L)return null;
   const text=L.text.trim(),target=draftMax(L);
   if(!text){toast("Give the goal a name first.");return null;}
+  if(L.kind==="streak"){
+    const since=KEY_RE.test(L.since)&&L.since<=TODAY?L.since:TODAY;
+    let g=L.id&&S.longs.find(x=>x.id===L.id);
+    const fresh=!g;
+    if(fresh){g=cleanLong({text,kind:"streak"});S.longs.push(g);}
+    g.text=text;g.updatedAt=Date.now();
+    // Only move the start when the date was actually changed; today means "from this moment".
+    if(fresh||since!==keyOf(new Date(g.start))){g.start=since===TODAY?Date.now():parseKey(since).getTime();g.seen=stonesFor(streakDays(g));}
+    save();
+    return g;
+  }
   if(!target){toast("Set a target of 2 or more.");return null;}
   let g=L.id&&S.longs.find(x=>x.id===L.id);
   if(!g){g=cleanLong({text});S.longs.push(g);}
@@ -1705,10 +1811,17 @@ document.addEventListener("click",e=>{
     if(g)applyLong(g,g.prog+ +ds.lstep*(g.pct?5:1),t.closest(".lg"));
     return;
   }
+  if(ds.slip){
+    const g=S.longs.find(x=>x.id===ds.slip);if(!g)return;
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again to reset";return;}
+    if(t.closest("#sheet2")){slipStreak(g,null);closeSheet(2);}else slipStreak(g,t.closest(".sk"));
+    return;
+  }
   if(ds.lPct&&editL){
-    const pct=ds.lPct==="1";if(pct===editL.pct)return;
+    if(ds.lPct==="s"){if(editL.kind!=="streak"){editL.kind="streak";renderLong();}return;}
+    const pct=ds.lPct==="1";if(editL.kind!=="streak"&&pct===editL.pct)return;
     const from=draftMax(editL)||10;
-    editL.pct=pct;
+    editL.kind="prog";editL.pct=pct;
     editL.prog=Math.round(editL.prog/from*(draftMax(editL)||10)); // keep the same share done
     renderLong();return;
   }
@@ -1856,6 +1969,7 @@ document.addEventListener("input",e=>{
   if(editL){
     if(el.matches("[data-l-text]")){editL.text=el.value;return;}
     if(el.matches("[data-l-due]")){editL.due=el.value;return;}
+    if(el.matches("[data-l-since]")){editL.since=el.value;return;}
     if(el.matches("[data-l-prog]")){editL.prog=+el.value;syncLong();return;}
     if(el.matches("[data-l-target]")){
       editL.target=el.value;
@@ -1871,6 +1985,7 @@ document.addEventListener("change",e=>{
   const el=e.target;
   if(el.matches("[data-r-track]")&&editR){editR.track=el.checked;const m=$("[data-r-trackmore]");if(m){m.hidden=!el.checked;m.classList.toggle("reveal",el.checked);}return;}
   if(el.matches("[data-l-due]")&&editL){editL.due=el.value;return;}
+  if(el.matches("[data-l-since]")&&editL){editL.since=el.value;return;}
   if(el.matches("[data-lnum]")){
     const g=S.longs.find(x=>x.id===el.dataset.lnum);if(!g)return;
     if(el.value.trim()===""){el.value=g.prog;showLong(el.closest(".lg"),g,g.prog);return;} // left empty: keep what was there
@@ -1904,7 +2019,12 @@ document.addEventListener("gesturestart",e=>e.preventDefault());
 if(window.visualViewport){visualViewport.addEventListener("resize",fitComposer);visualViewport.addEventListener("scroll",fitComposer);}
 // Lets the :active press states show on iPhone.
 document.addEventListener("touchstart",()=>{},{passive:true});
-setInterval(()=>{checkDate();if(document.visibilityState==="visible"&&!document.activeElement.matches("input,textarea"))$$("[data-goal-list]").forEach(el=>updateGoals(el.dataset.goalList));},60000);
+setInterval(()=>{
+  checkDate();
+  if(document.visibilityState!=="visible"||document.activeElement.matches("input,textarea"))return;
+  $$("[data-goal-list]").forEach(el=>updateGoals(el.dataset.goalList));
+  if(currentTab==="goals"&&!slide&&!sheetOpen[2]&&S.longs.some(g=>g.kind==="streak"))renderLongs();
+},60000);
 
 /* =========================================================
    Start
