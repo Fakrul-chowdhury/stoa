@@ -183,7 +183,6 @@ textarea::placeholder,input::placeholder{color:var(--muted);opacity:.7}
 .empty .btn-row{justify-content:center}
 .note-ic{width:40px;height:40px;margin-top:2px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
 .note-ic svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-textarea.input.note-input{min-height:42vh;resize:none}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 18px;border-radius:12px;border:1px solid var(--line-strong);font-weight:600;font-size:15px;background:var(--surface);cursor:pointer;text-align:center}
@@ -212,7 +211,11 @@ a.btn{color:inherit;text-decoration:none}
 .qlist{margin-top:14px}
 .qcard{display:flex;gap:10px;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--line)}
 .qcard:first-child{border-top:1px solid var(--line)}
-.qbody{flex:1;min-width:0;text-align:left}
+.qmain{flex:1;min-width:0}
+.qbody{display:block;width:100%;text-align:left}
+.qnote{padding:12px 0 2px}
+.qnote-label{margin:0 0 4px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.qnote-text{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
 .qbody q{display:block;font-family:var(--serif);font-size:18px;line-height:1.45;quotes:none;overflow-wrap:anywhere}
 .qbody span{display:block;margin-top:5px;font-size:14px;color:var(--muted)}
 .heart svg{fill:none;stroke:currentColor}
@@ -300,6 +303,15 @@ textarea.input{resize:vertical;min-height:110px;font-family:var(--serif);font-si
 .saved-row svg{width:18px;height:18px;stroke:var(--line-strong);fill:none;stroke-width:2;flex-shrink:0}
 .divider{height:1px;background:var(--line);margin:24px 0}
 
+/* Note page */
+.composer{position:fixed;left:0;right:0;top:0;height:100%;z-index:60;display:flex;flex-direction:column;background:var(--bg);padding-top:env(safe-area-inset-top,0px);transform:translateY(100%);visibility:hidden;transition:transform .46s var(--ease-sheet),visibility 0s .46s;will-change:transform}
+.composer.open{transform:none;visibility:visible;transition:transform .46s var(--ease-sheet)}
+.composer-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;width:100%;max-width:600px;margin:0 auto;padding:14px 20px 10px;border-bottom:1px solid var(--line)}
+.composer-bar .link{justify-self:start;font-size:16px;padding:4px 0}
+.composer-bar .composer-end{justify-self:end;text-align:right}
+.composer-bar .link.composer-end{color:var(--muted);font-size:14px;font-weight:500}
+.composer-text{flex:1;display:block;width:100%;max-width:600px;margin:0 auto;border:0;outline:none;resize:none;background:transparent;font-family:var(--serif);font-size:19px;line-height:1.7;padding:18px 20px calc(28px + env(safe-area-inset-bottom,0px))}
+
 /* Welcome */
 .welcome{position:fixed;inset:0;z-index:70;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));overflow-y:auto;transition:opacity .4s var(--ease),transform .4s var(--ease)}
 .welcome.out{opacity:0;transform:scale(1.03);pointer-events:none}
@@ -340,6 +352,7 @@ textarea.input{resize:vertical;min-height:110px;font-family:var(--serif);font-si
 <div class="sheet" id="sheet1" role="dialog" aria-modal="true"></div>
 <div class="scrim" id="scrim2" data-close-sheet="2"></div>
 <div class="sheet" id="sheet2" role="dialog" aria-modal="true"></div>
+<div class="composer" id="composer" role="dialog" aria-modal="true" aria-label="Note"></div>
 <div class="welcome" id="welcome" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -406,6 +419,20 @@ function slideIn(el){
   const done=()=>{el.style.overflow="";};
   a.onfinish=a.oncancel=done;setTimeout(done,500); // the timer covers a backgrounded app, where animations pause
 }
+// Hide a block that stays in the page (slideOut removes it instead).
+function collapse(el){
+  if(reduceMotion.matches||!el.animate){el.hidden=true;return;}
+  const cs=getComputedStyle(el);
+  el.style.overflow="hidden";
+  const a=el.animate([{height:el.offsetHeight+"px",paddingTop:cs.paddingTop,paddingBottom:cs.paddingBottom,opacity:1},{height:"0px",paddingTop:"0px",paddingBottom:"0px",opacity:0}],{duration:240,easing:EASE,fill:"forwards"});
+  const done=()=>{if(el._col!==a)return;el._col=null;el.hidden=true;el.style.overflow="";a.cancel();};
+  el._col=a;a.onfinish=done;setTimeout(done,500);
+}
+function expand(el){
+  el._col=null;
+  if(el.getAnimations)el.getAnimations().forEach(a=>a.cancel());
+  el.hidden=false;slideIn(el);
+}
 function slideOut(el){
   el._leaving=true;el.style.pointerEvents="none";
   if(reduceMotion.matches||!el.animate){el.remove();return;}
@@ -440,7 +467,7 @@ function cleanRoutine(r){
   return {id:String(r.id||newId()),text:String(r.text||"").slice(0,300),freq:f,days:Array.isArray(r.days)?r.days.filter(d=>d>=0&&d<=6):[],time:/^\d{2}:\d{2}$/.test(r.time||"")?r.time:"",lastUsed:Number(r.lastUsed)||0,createdAt:Number(r.createdAt)||Date.now()};
 }
 function cleanNote(n){const c=Number(n.createdAt)||Date.now();return {id:String(n.id||newId()),text:String(n.text||""),createdAt:c,updatedAt:Number(n.updatedAt)||c};}
-function cleanQuote(q){return {id:String(q.id||newId()),text:String(q.text||"").slice(0,2000),author:String(q.author||"").slice(0,120),fav:!!q.fav,createdAt:Number(q.createdAt)||Date.now()};}
+function cleanQuote(q){return {id:String(q.id||newId()),text:String(q.text||"").slice(0,2000),author:String(q.author||"").slice(0,120),note:String(q.note||"").slice(0,4000),fav:!!q.fav,createdAt:Number(q.createdAt)||Date.now()};}
 function load(){
   let raw={};
   try{raw=JSON.parse(localStorage.getItem(STORE_KEY)||"{}")||{};}catch(e){}
@@ -800,16 +827,41 @@ function renderJournal(){
   list.innerHTML=html;
 }
 
-/* Open notes: journal entries that aren't tied to a day's check-in */
-let editN=null; // id of the note in the editor; null until a new note has some text
+/* Open notes: journal entries that aren't tied to a day's check-in. Each gets a full page to write on. */
+let editN=null; // id of the note being written; null until a new note has some text
+let noteOpen=false;
+// Keep the page above the iPhone keyboard so the line being typed stays in view.
+function fitComposer(){
+  const v=window.visualViewport;
+  if(!noteOpen||!v)return;
+  const c=$("#composer");
+  c.style.height=v.height+"px";c.style.top=v.offsetTop+"px";
+}
 function openNote(id){
   const n=id?S.notes.find(x=>x.id===id):null;
   editN=n?n.id:null;
-  const when=n?new Date(n.createdAt).toLocaleString(undefined,{weekday:"long",day:"numeric",month:"long",hour:"numeric",minute:"2-digit"}):"Saves as you write";
-  openSheet(2,sheetHead(n?"Note":"New note",when)+
-    '<textarea class="input note-input" data-n-text placeholder="Write anything…" aria-label="Note">'+esc(n?n.text:"")+'</textarea>'+
-    '<div class="sheet-actions" style="margin-top:14px"><button class="btn primary block-btn" data-n-done>Done</button>'+(n?'<button class="btn danger block-btn" data-n-delete>Delete note</button>':'')+'</div>');
-  if(!n)setTimeout(()=>{const t=$("[data-n-text]");if(t)t.focus();},350);
+  const when=n?new Date(n.createdAt).toLocaleString(undefined,{weekday:"short",day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}):"New note";
+  const c=$("#composer");
+  c.innerHTML='<header class="composer-bar"><button class="link" data-n-done>Done</button><span class="muted small">'+esc(when)+'</span>'+
+    (n?'<button class="link composer-end" data-n-delete>Delete</button>':'<span class="composer-end muted small">Saves as you write</span>')+'</header>'+
+    '<textarea class="composer-text" data-n-text placeholder="Write anything…" aria-label="Note">'+esc(n?n.text:"")+'</textarea>';
+  noteOpen=true;
+  c.classList.add("open");
+  document.body.style.overflow="hidden";
+  fitComposer();
+  // Focus straight away for a new note so the keyboard comes up with the page.
+  if(!n)$("[data-n-text]",c).focus({preventScroll:true});
+}
+function closeNote(){
+  if(!noteOpen)return;
+  noteOpen=false;
+  const c=$("#composer"),t=$("[data-n-text]",c);
+  if(t)t.blur();
+  finishNote();
+  c.classList.remove("open");
+  if(!sheetOpen[1]&&!sheetOpen[2])document.body.style.overflow="";
+  setTimeout(()=>{if(!noteOpen){c.innerHTML="";c.style.height="";c.style.top="";}},480);
+  renderAll();
 }
 function writeNote(text){
   let n=editN&&S.notes.find(x=>x.id===editN);
@@ -831,6 +883,7 @@ function finishNote(){
    Quotes
    ========================================================= */
 let quoteFilter="all";
+const qOpen=new Set(); // quotes whose "my understanding" is showing
 function renderQuotes(){
   const el=$("#view-quotes");
   const n=S.quotes.length;
@@ -846,7 +899,11 @@ function renderQuotes(){
   html+='<div class="seg" role="radiogroup" aria-label="Filter quotes"><button role="radio" aria-checked="'+(quoteFilter==="all")+'" data-qfilter="all">All</button><button role="radio" aria-checked="'+(quoteFilter==="fav")+'" data-qfilter="fav">Favourites '+favCount+'</button></div>';
   const list=S.quotes.filter(x=>quoteFilter==="all"||x.fav).sort((a,b)=>b.createdAt-a.createdAt);
   html+='<div class="qlist">'+(list.length?list.map(x=>
-    '<div class="qcard"><button class="qbody" data-edit-quote="'+esc(x.id)+'"><q>'+esc(x.text)+'</q>'+(x.author?'<span>'+esc(x.author)+'</span>':'')+'</button>'+
+    '<div class="qcard"><div class="qmain"><button class="qbody" data-qopen="'+esc(x.id)+'" aria-expanded="'+qOpen.has(x.id)+'"><q>'+esc(x.text)+'</q>'+(x.author?'<span>'+esc(x.author)+'</span>':'')+'</button>'+
+      // Your own reading of the quote stays out of sight until the quote is tapped.
+      '<div class="qnote"'+(qOpen.has(x.id)?'':' hidden')+'><p class="qnote-label">My understanding</p>'+
+        '<p class="qnote-text'+(x.note?'':' muted')+'">'+(x.note?esc(x.note):"You haven't written what this means to you yet.")+'</p>'+
+        '<button class="link" data-edit-quote="'+esc(x.id)+'">'+(x.note?"Edit":"Add your understanding")+'</button></div></div>'+
     '<button class="icon-btn heart" data-fav="'+esc(x.id)+'" aria-pressed="'+x.fav+'" aria-label="'+(x.fav?"Remove from favourites":"Add to favourites")+'">'+I.heart+'</button></div>').join("")
     :'<div class="empty"><p>Tap the heart on a quote to add it to your favourites.</p></div>')+'</div>';
   el.innerHTML=html;
@@ -943,7 +1000,7 @@ function closeSheet(n){
   sheetOpen[n]=false;
   $("#scrim"+n).classList.remove("open");$("#sheet"+n).classList.remove("open");
   if(n===1)daySheetKey=null;
-  if(n===2){editR=null;finishNote();}
+  if(n===2)editR=null;
   if(!sheetOpen[1]&&!sheetOpen[2])document.body.style.overflow="";
   setTimeout(()=>{if(!sheetOpen[n])$("#sheet"+n).innerHTML="";},480);
   renderAll();
@@ -1035,6 +1092,7 @@ function openQuote(id){
   openSheet(2,sheetHead(q?"Edit quote":"New quote")+
     '<label class="field"><span>Quote</span><textarea class="input" data-q-text maxlength="2000" placeholder="Type or paste a line you want to keep">'+esc(q?q.text:"")+'</textarea></label>'+
     '<label class="field"><span>Who said it (optional)</span><input class="input" data-q-author maxlength="120" value="'+esc(q?q.author:"")+'" placeholder="Author, book, or person"></label>'+
+    '<label class="field"><span>My understanding (optional)</span><textarea class="input" data-q-note maxlength="4000" placeholder="What this means to you. It only shows when you tap the quote.">'+esc(q?q.note:"")+'</textarea></label>'+
     '<div class="sheet-actions"><button class="btn primary block-btn" data-q-save>Save quote</button>'+(q?'<button class="btn danger block-btn" data-q-delete>Delete quote</button>':'')+'</div>');
   if(!q)setTimeout(()=>{const t=$("[data-q-text]");if(t)t.focus();},350);
 }
@@ -1153,7 +1211,11 @@ function importData(file){
         if(!cur||inc.updatedAt>cur.updatedAt){S.days[k]=inc;n++;}
       }
       (obj.routines||[]).forEach(r=>{const c=cleanRoutine(r);if(c.text&&!routine(c.id)&&!S.routines.some(x=>x.text.toLowerCase()===c.text.toLowerCase()))S.routines.push(c);});
-      (obj.quotes||[]).forEach(q=>{const c=cleanQuote(q);if(c.text&&!S.quotes.some(x=>x.id===c.id||x.text===c.text))S.quotes.push(c);});
+      (obj.quotes||[]).forEach(q=>{
+        const c=cleanQuote(q);if(!c.text)return;
+        const cur=S.quotes.find(x=>x.id===c.id||x.text===c.text);
+        if(!cur)S.quotes.push(c);else if(c.note&&!cur.note)cur.note=c.note;
+      });
       (obj.notes||[]).forEach(x=>{
         const c=cleanNote(x);if(!c.text.trim())return;
         const cur=S.notes.find(y=>y.id===c.id);
@@ -1304,21 +1366,28 @@ document.addEventListener("click",e=>{
   // open notes
   if(t.hasAttribute("data-new-note")){openNote(null);return;}
   if(ds.openNote){openNote(ds.openNote);return;}
-  if(t.hasAttribute("data-n-done")){closeSheet(2);return;}
+  if(t.hasAttribute("data-n-done")){closeNote();return;}
   if(t.hasAttribute("data-n-delete")&&editN){
-    if(!ds.sure){ds.sure="1";t.textContent="Tap again to delete";return;}
-    S.notes=S.notes.filter(x=>x.id!==editN);editN=null;save();toast("Note deleted");closeSheet(2);return;
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again";t.style.color="var(--accent)";return;}
+    S.notes=S.notes.filter(x=>x.id!==editN);editN=null;save();toast("Note deleted");closeNote();return;
   }
 
   if(ds.editQuote){openQuote(ds.editQuote);return;}
   if(ds.fav){const q=S.quotes.find(x=>x.id===ds.fav);if(q){q.fav=!q.fav;save();renderAll();const h=$$("[data-fav]").find(b=>b.dataset.fav===ds.fav);if(h&&q.fav)h.classList.add("pop");}return;}
+  if(ds.qopen){
+    const box=$(".qnote",t.parentNode),open=!qOpen.has(ds.qopen);
+    if(open)qOpen.add(ds.qopen);else qOpen.delete(ds.qopen);
+    t.setAttribute("aria-expanded",open);
+    if(open)expand(box);else collapse(box);
+    return;
+  }
   if(ds.qfilter){quoteFilter=ds.qfilter;renderQuotes();return;}
   if(t.hasAttribute("data-next-quote")){qShift++;renderQuotes();updateQuoteStrip();return;}
   if(t.hasAttribute("data-q-save")){
-    const text=$("[data-q-text]").value.trim(),author=$("[data-q-author]").value.trim();
+    const text=$("[data-q-text]").value.trim(),author=$("[data-q-author]").value.trim(),note=$("[data-q-note]").value.trim();
     if(!text){toast("Type the quote first.");$("[data-q-text]").focus();return;}
-    if(editQ){const q=S.quotes.find(x=>x.id===editQ);if(q){q.text=text;q.author=author;}}
-    else S.quotes.push(cleanQuote({text,author}));
+    if(editQ){const q=S.quotes.find(x=>x.id===editQ);if(q){q.text=text;q.author=author;q.note=note;}}
+    else S.quotes.push(cleanQuote({text,author,note}));
     save();toast(editQ?"Quote updated":"Quote saved");closeSheet(2);return;
   }
   if(t.hasAttribute("data-q-delete")&&editQ){S.quotes=S.quotes.filter(x=>x.id!==editQ);editQ=null;save();toast("Quote deleted");closeSheet(2);return;}
@@ -1337,7 +1406,7 @@ document.addEventListener("click",e=>{
 });
 
 document.addEventListener("keydown",e=>{
-  if(e.key==="Escape"){if(sheetOpen[2])closeSheet(2);else if(sheetOpen[1])closeSheet(1);return;}
+  if(e.key==="Escape"){if(noteOpen)closeNote();else if(sheetOpen[2])closeSheet(2);else if(sheetOpen[1])closeSheet(1);return;}
   if(e.key!=="Enter"||e.isComposing)return;
   const gi=e.target.closest&&e.target.closest("input[data-goal-input]");
   if(gi){e.preventDefault();if(addGoalText(gi.dataset.goalInput,gi.value))gi.value="";return;}
@@ -1390,6 +1459,7 @@ window.addEventListener("resize",()=>$$("textarea[data-text]").forEach(autosize)
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change",applyTheme);
 // No pinch zoom: iPhone ignores the viewport setting on its own, so stop the gesture too.
 document.addEventListener("gesturestart",e=>e.preventDefault());
+if(window.visualViewport){visualViewport.addEventListener("resize",fitComposer);visualViewport.addEventListener("scroll",fitComposer);}
 // Lets the :active press states show on iPhone.
 document.addEventListener("touchstart",()=>{},{passive:true});
 setInterval(()=>{checkDate();if(document.visibilityState==="visible"&&!document.activeElement.matches("input,textarea"))$$("[data-goal-list]").forEach(el=>updateGoals(el.dataset.goalList));},60000);
