@@ -194,6 +194,8 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .lg-meta{display:block;margin-top:4px;font-size:14px;color:var(--muted)}
 .lg-meta.due{color:var(--accent)}
 .lg-row{display:flex;align-items:center;gap:12px;margin-top:14px}
+.lg-set{justify-content:space-between;margin-top:4px}
+.lg-set .step{width:38px;height:38px;font-size:20px}
 .lg-slide{position:relative;flex:1;min-width:0;height:40px;padding:0 11px;display:flex;align-items:center;touch-action:pan-y;cursor:grab;border-radius:12px;-webkit-user-select:none;user-select:none}
 .lg-slide .bar{height:10px}
 .lg-slide .bar i{width:calc(var(--p,0)*100%)}
@@ -1017,27 +1019,26 @@ function finishNote(){
 /* =========================================================
    Long-term goals
    ========================================================= */
-const longLabel=g=>g.pct?g.prog+"%":g.prog+" of "+g.target;
-function longMeta(g){
-  const bits=[longLabel(g)];
-  if(g.due)bits.push((g.due<TODAY?"was due ":"by ")+fmt(g.due,{day:"numeric",month:"short",year:g.due.slice(0,4)===TODAY.slice(0,4)?undefined:"numeric"}));
-  return bits.join(" · ");
-}
+// The finish-by line under a goal's title; empty when no date is set.
+const longDue=g=>g.due?(g.due<TODAY?"Was due ":"By ")+fmt(g.due,{day:"numeric",month:"short",year:g.due.slice(0,4)===TODAY.slice(0,4)?undefined:"numeric"}):"";
 function setLongProg(g,p){
   g.prog=clamp(p,g.target);g.updatedAt=Date.now();
   if(g.prog>=g.target){if(!g.doneAt)g.doneAt=Date.now();}else g.doneAt=0;
 }
 function longCard(g){
-  return '<div class="lg"><button class="lg-main" data-open-long="'+esc(g.id)+'"><span class="lg-title">'+esc(g.text)+'</span><span class="lg-meta'+(g.due&&g.due<TODAY?" due":"")+'">'+esc(longMeta(g))+'</span></button>'+
-    '<div class="lg-row"><div class="lg-slide" data-lslide="'+esc(g.id)+'" role="slider" tabindex="0" aria-label="Progress" aria-valuemin="0" aria-valuemax="'+g.target+'" aria-valuenow="'+g.prog+'" style="--p:'+g.prog/g.target+'"><div class="bar"><i></i></div><b class="lg-knob"></b></div>'+
-    '<label class="lg-num"><input type="number" inputmode="numeric" min="0" max="'+g.target+'" value="'+g.prog+'" placeholder="0" data-lnum="'+esc(g.id)+'" aria-label="Amount done"><span>'+(g.pct?"%":"of "+g.target)+'</span></label></div></div>';
+  const due=longDue(g);
+  return '<div class="lg"><button class="lg-main" data-open-long="'+esc(g.id)+'"><span class="lg-title">'+esc(g.text)+'</span>'+(due?'<span class="lg-meta'+(g.due<TODAY?" due":"")+'">'+esc(due)+'</span>':'')+'</button>'+
+    // Three ways to set it: drag the bar, nudge with the buttons, or type the figure.
+    '<div class="lg-row"><div class="lg-slide" data-lslide="'+esc(g.id)+'" role="slider" tabindex="0" aria-label="Progress" aria-valuemin="0" aria-valuemax="'+g.target+'" aria-valuenow="'+g.prog+'" style="--p:'+g.prog/g.target+'"><div class="bar"><i></i></div><b class="lg-knob"></b></div></div>'+
+    '<div class="lg-row lg-set"><button class="step" data-lstep="-1" data-lid="'+esc(g.id)+'" aria-label="Less">&minus;</button>'+
+    '<label class="lg-num"><input type="number" inputmode="numeric" min="0" max="'+g.target+'" value="'+g.prog+'" placeholder="0" data-lnum="'+esc(g.id)+'" aria-label="Amount done"><span>'+(g.pct?"%":"of "+g.target)+'</span></label>'+
+    '<button class="step" data-lstep="1" data-lid="'+esc(g.id)+'" aria-label="More">+</button></div></div>';
 }
 // Show a value on a card (while dragging or typing, before it is saved).
 function showLong(card,g,v){
   const sl=$("[data-lslide]",card),num=$("[data-lnum]",card);
   sl.style.setProperty("--p",v/g.target);sl.setAttribute("aria-valuenow",v);
   if(document.activeElement!==num)num.value=v;
-  $(".lg-meta",card).textContent=longMeta(Object.assign({},g,{prog:v}));
 }
 function applyLong(g,v,card){
   const was=!!g.doneAt;
@@ -1699,6 +1700,11 @@ document.addEventListener("click",e=>{
   // long-term goals
   if(t.hasAttribute("data-new-long")){openLong(null);return;}
   if(ds.openLong){openLong(ds.openLong);return;}
+  if(ds.lstep){
+    const g=S.longs.find(x=>x.id===ds.lid);
+    if(g)applyLong(g,g.prog+ +ds.lstep*(g.pct?5:1),t.closest(".lg"));
+    return;
+  }
   if(ds.lPct&&editL){
     const pct=ds.lPct==="1";if(pct===editL.pct)return;
     const from=draftMax(editL)||10;
