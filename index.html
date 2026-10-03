@@ -262,6 +262,24 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .ph-thumb img{display:block;width:100%;height:100%;object-fit:cover}
 .ph-thumb:active{transform:scale(.95)}
 .ph-preview{display:block;width:100%;max-height:42vh;object-fit:contain;border-radius:14px;background:var(--surface);margin-bottom:16px}
+/* App lock: covers everything until the passcode is entered */
+.lock{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));transition:opacity .3s var(--ease)}
+.lock.out{opacity:0;pointer-events:none}
+.lock-in{width:100%;max-width:320px;text-align:center}
+.lock-logo{display:block;width:56px;height:56px;border-radius:14px;margin:0 auto 18px}
+.lock-title{margin:0;font-family:var(--serif);font-size:24px;line-height:1.25;font-weight:600}
+.lock-dots{display:flex;justify-content:center;gap:18px;margin:22px 0 8px}
+.lock-dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink);transition:background-color .15s}
+.lock-dots i.on{background:var(--ink)}
+.lock-dots.shake{animation:shake .4s}
+@keyframes shake{20%,60%{transform:translateX(-10px)}40%,80%{transform:translateX(10px)}}
+.lock-msg{min-height:22px;margin:0 0 16px;font-size:14px;color:var(--accent)}
+.lock-note{margin:12px 0 22px;color:var(--muted)}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 22px;justify-items:center}
+.keypad button{width:74px;height:74px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:28px;font-weight:500;font-variant-numeric:tabular-nums}
+.keypad button:active{background:var(--line-strong);transform:scale(.94)}
+.keypad .kp-text{border:0;background:none;font-size:15px;font-weight:600;color:var(--muted)}
+.keypad button:disabled{opacity:.35}
 .viewer{position:fixed;inset:0;z-index:75;display:flex;flex-direction:column;background:#000;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);opacity:0;pointer-events:none;transition:opacity .25s var(--ease)}
 .viewer.open{opacity:1;pointer-events:auto}
 .viewer-bar{display:flex;justify-content:space-between;padding:14px 20px}
@@ -449,6 +467,7 @@ textarea.input{resize:vertical;min-height:110px;font-family:var(--serif);font-si
 <div class="sheet" id="sheet2" role="dialog" aria-modal="true"></div>
 <div class="composer" id="composer" role="dialog" aria-modal="true" aria-label="Note"></div>
 <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Photo"></div>
+<div class="lock" id="lock" role="dialog" aria-modal="true" aria-label="Passcode" hidden></div>
 <input type="file" accept="image/*" id="photo-input" hidden>
 <div class="welcome" id="welcome" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -480,6 +499,7 @@ const I={
   bell:'<svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>',
   cal:'<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   chev:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  lock:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   camera:'<svg viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>',
   pen:'<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   heart:'<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-8-4.7-8-10.6A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 8 2.9c0 5.9-8 10.6-8 10.6z"/></svg>',
@@ -1531,6 +1551,7 @@ function openSettings(){
     '<label class="field"><span>Your name</span><input class="input" data-s-name maxlength="40" value="'+esc(S.profile.name)+'" placeholder="What should Stoa call you?" autocomplete="given-name"></label>'+
     '<div class="field"><span class="field-label">Appearance</span><div class="seg" role="radiogroup" aria-label="Appearance">'+
       [["system","Match phone"],["light","Light"],["dark","Dark"]].map(t=>'<button role="radio" aria-checked="'+(S.settings.theme===t[0])+'" data-s-theme="'+t[0]+'">'+t[1]+'</button>').join("")+'</div></div>'+
+    '<div class="field"><span class="field-label">App lock</span><div data-lock-box>'+lockBox()+'</div></div>'+
     '<div class="field"><span class="field-label">Notifications</span><div data-push-box>'+pushBox()+'</div></div>'+
     '<div class="field"><span class="field-label">Goals and reminders</span>'+
       '<button class="btn block-btn" data-open-saved>Manage saved goals</button>'+
@@ -1614,6 +1635,7 @@ const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").sl
    Backup
    ========================================================= */
 async function exportData(){
+  lockPause();
   // Photos go in the backup as data, so it is complete on its own.
   const photos={},ids=new Set();
   Object.values(S.days).forEach(d=>(d.photos||[]).forEach(id=>ids.add(id)));
@@ -1727,6 +1749,117 @@ let tt;
 function toast(msg){const el=$("#toast");el.textContent=msg;el.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("show"),2800);}
 
 /* =========================================================
+   App lock
+   A 4-digit passcode asked for when Stoa opens or comes back. Only a salted, slowed-down hash of
+   it is kept (PBKDF2), on this phone. It keeps people out of the app; it doesn't encrypt the journal.
+   ========================================================= */
+const LOCK_KEY="stoa.lock.v1",FAIL_KEY="stoa.lock.fails";
+const LOCK_AFTER=[[0,"Right away"],[60,"After 1 minute"],[300,"After 5 minutes"]];
+const toB64=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))),fromB64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+function lockConf(){try{return JSON.parse(localStorage.getItem(LOCK_KEY)||"null");}catch(e){return null;}}
+function lockFails(){try{return JSON.parse(localStorage.getItem(FAIL_KEY)||"null")||{n:0,until:0};}catch(e){return {n:0,until:0};}}
+async function pinHash(pin,salt,iter){
+  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(pin),"PBKDF2",false,["deriveBits"]);
+  return toB64(await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations:iter},key,256));
+}
+let lockMode=null,pin="",firstPin="",hiddenAt=0,lockGrace=0,lockT=null;
+// Opening the camera, a calendar or the share sheet briefly leaves Stoa; that shouldn't ask for the passcode.
+function lockPause(){lockGrace=Date.now()+120000;}
+function setInert(on){["main",".nav","#sheet1","#sheet2","#composer","#viewer"].forEach(sel=>{const el=$(sel);if(el)el.inert=on;});}
+const LOCK_TITLES={unlock:"Enter your passcode",set1:"Choose a 4-digit passcode",set2:"Enter it again",off:"Enter your passcode to turn the lock off",change:"Enter your current passcode"};
+function showLock(mode){
+  lockMode=mode;pin="";if(mode!=="set2")firstPin="";
+  const el=$("#lock");
+  el.innerHTML='<div class="lock-in"><img class="lock-logo" src="apple-touch-icon.png" alt=""><p class="lock-title">'+LOCK_TITLES[mode]+'</p>'+
+    '<div class="lock-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p class="lock-msg" aria-live="polite"></p>'+
+    '<div class="keypad">'+[1,2,3,4,5,6,7,8,9].map(d=>'<button data-kp="'+d+'">'+d+'</button>').join("")+
+    (mode==="unlock"?'<button class="kp-text" data-kp-forgot>Forgot?</button>':'<button class="kp-text" data-kp-cancel>Cancel</button>')+
+    '<button data-kp="0">0</button><button class="kp-text" data-kp-del aria-label="Delete">Delete</button></div></div>';
+  el.hidden=false;el.classList.remove("out");setInert(true);
+  if(mode==="unlock"||mode==="off"||mode==="change")lockoutTick();
+}
+function hideLock(){
+  const el=$("#lock");lockMode=null;pin="";setInert(false);el.classList.add("out");
+  setTimeout(()=>{if(!lockMode){el.hidden=true;el.innerHTML="";el.classList.remove("out");}},320);
+}
+const drawDots=()=>$$("#lock .lock-dots i").forEach((d,i)=>d.classList.toggle("on",i<pin.length));
+function lockMsg(text,shake){
+  const m=$("#lock .lock-msg");if(m)m.textContent=text;
+  if(shake){const d=$("#lock .lock-dots");if(d){d.classList.remove("shake");void d.offsetWidth;d.classList.add("shake");}}
+}
+// After 5 wrong tries the keypad rests for 30 seconds, doubling each time after that (up to 5 minutes).
+function lockoutTick(){
+  clearTimeout(lockT);
+  const left=Math.ceil((lockFails().until-Date.now())/1000);
+  $$("#lock [data-kp]").forEach(b=>b.disabled=left>0);
+  if(left>0){lockMsg("Too many tries. Try again in "+left+" second"+(left===1?"":"s")+".");lockT=setTimeout(lockoutTick,1000);}
+  else{const m=$("#lock .lock-msg");if(m&&m.textContent.startsWith("Too many"))m.textContent="";}
+}
+function lockFailed(){
+  const f=lockFails();f.n++;
+  if(f.n>=5)f.until=Date.now()+Math.min(300,30*2**(f.n-5))*1000;
+  localStorage.setItem(FAIL_KEY,JSON.stringify(f));
+  lockMsg("Wrong passcode",true);lockoutTick();
+}
+function kpDigit(d){
+  if(!lockMode||pin.length>=4||$("#lock [data-kp]:disabled"))return;
+  pin+=d;drawDots();
+  if(pin.length===4)setTimeout(pinDone,120);
+}
+function kpDel(){pin=pin.slice(0,-1);drawDots();}
+async function pinDone(){
+  const entered=pin,mode=lockMode;pin="";
+  if(mode==="set1"){firstPin=entered;showLock("set2");return;}
+  if(mode==="set2"){
+    if(entered!==firstPin){showLock("set1");lockMsg("Those didn't match. Try again.",true);return;}
+    const salt=crypto.getRandomValues(new Uint8Array(16)),iter=150000,old=lockConf();
+    localStorage.setItem(LOCK_KEY,JSON.stringify({salt:toB64(salt),iter,hash:await pinHash(entered,salt,iter),after:old?old.after:0}));
+    firstPin="";hideLock();toast("Passcode set. Stoa will ask for it when you come back.");lockRefresh();return;
+  }
+  const c=lockConf();
+  if(!c){hideLock();return;}
+  if(await pinHash(entered,fromB64(c.salt),c.iter)!==c.hash){drawDots();lockFailed();return;}
+  localStorage.removeItem(FAIL_KEY);
+  if(mode==="unlock")hideLock();
+  else if(mode==="off"){localStorage.removeItem(LOCK_KEY);hideLock();toast("Passcode turned off.");lockRefresh();}
+  else if(mode==="change")showLock("set1");
+}
+function showForgot(){
+  $("#lock").innerHTML='<div class="lock-in"><img class="lock-logo" src="apple-touch-icon.png" alt=""><p class="lock-title">Forgot your passcode?</p>'+
+    '<p class="lock-note">Stoa can\'t recover it, because it never leaves this phone. You can erase Stoa on this phone and start again, then import a backup if you have one.</p>'+
+    '<div class="sheet-actions"><button class="btn danger block-btn" data-kp-erase>Erase Stoa on this phone</button><button class="btn block-btn" data-kp-back>Back</button></div></div>';
+}
+async function eraseAll(){
+  clearTimeout(saveTimer);saveTimer=null; // nothing may write the journal back
+  try{const sub=await pushSub();if(sub){pushPost("/unsub",{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe();}}catch(e){}
+  [STORE_KEY,LOCK_KEY,FAIL_KEY,PUSH_SENT].forEach(k=>localStorage.removeItem(k));
+  try{indexedDB.deleteDatabase("stoa-photos");}catch(e){}
+  try{await caches.delete("stoa-notify");}catch(e){}
+  location.reload();
+}
+function lockBox(){
+  const c=lockConf();
+  if(!c)return '<button class="btn block-btn" data-lock-set>'+I.lock+'Set a passcode</button>'+
+    '<p class="hint">Stoa will ask for a 4-digit passcode when you open it. It keeps people out of the app on this phone; it doesn\'t encrypt your journal, so keep your phone\'s own passcode on too.</p>';
+  return '<div class="seg" role="radiogroup" aria-label="Lock">'+LOCK_AFTER.map(a=>'<button role="radio" aria-checked="'+(c.after===a[0])+'" data-lock-after="'+a[0]+'">'+a[1]+'</button>').join("")+'</div>'+
+    '<p class="hint" style="margin-bottom:12px">When Stoa asks again after you leave it.'+(pushOn?' Reminder notifications still show the goal\'s name on your lock screen; to hide it, set your iPhone\'s Settings, Notifications, Show Previews to "When Unlocked".':'')+'</p>'+
+    '<div class="btn-row"><button class="btn" data-lock-change>Change passcode</button><button class="btn" data-lock-off>Turn off</button></div>';
+}
+function lockRefresh(){const b=$("[data-lock-box]");if(b)b.innerHTML=lockBox();}
+document.addEventListener("visibilitychange",()=>{
+  const c=lockConf();if(!c||lockMode)return;
+  if(document.visibilityState==="hidden"){
+    hiddenAt=Date.now();
+    // Locking as Stoa leaves keeps the journal out of the app switcher's snapshot.
+    if(!c.after&&Date.now()>lockGrace)showLock("unlock");
+  }else if(hiddenAt){
+    // Back again: ask if Stoa was away longer than the chosen time.
+    if(Date.now()>lockGrace&&Date.now()-hiddenAt>=c.after*1000)showLock("unlock");
+    hiddenAt=0;lockGrace=0;
+  }
+});
+
+/* =========================================================
    Photos
    Pictures live in the phone's own database (IndexedDB), not with the rest of the journal,
    because they are much bigger. A day or a note keeps only their ids.
@@ -1782,7 +1915,7 @@ async function shrinkPhoto(file,max,quality){
 
 // Where a new photo goes: today's (or another day's) journal, a new note, or the note being written.
 let phTarget=null,phPick=null;
-function pickPhoto(target){phTarget=target;const inp=$("#photo-input");inp.value="";inp.click();}
+function pickPhoto(target){lockPause();phTarget=target;const inp=$("#photo-input");inp.value="";inp.click();}
 function photoChosen(file){
   if(!file||!phTarget)return;
   phPick={file,url:URL.createObjectURL(file)};
@@ -2047,6 +2180,21 @@ document.addEventListener("click",e=>{
   if(!t)return;
   const ds=t.dataset;
 
+  // passcode keypad
+  if(ds.kp){kpDigit(ds.kp);return;}
+  if(t.hasAttribute("data-kp-del")){kpDel();return;}
+  if(t.hasAttribute("data-kp-cancel")){firstPin="";hideLock();return;}
+  if(t.hasAttribute("data-kp-forgot")){showForgot();return;}
+  if(t.hasAttribute("data-kp-back")){showLock("unlock");return;}
+  if(t.hasAttribute("data-kp-erase")){
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again: this erases everything";return;}
+    eraseAll();return;
+  }
+  if(t.hasAttribute("data-lock-set")){showLock("set1");return;}
+  if(t.hasAttribute("data-lock-change")){showLock("change");return;}
+  if(t.hasAttribute("data-lock-off")){showLock("off");return;}
+  if(ds.lockAfter){const c=lockConf();if(c){c.after=+ds.lockAfter;localStorage.setItem(LOCK_KEY,JSON.stringify(c));lockRefresh();}return;}
+
   if(t.hasAttribute("data-close-sheet")){const n=ds.closeSheet||(t.closest("#sheet2")?"2":"1");closeSheet(+n);return;}
   if(ds.tab){if(sheetOpen[2])closeSheet(2);if(sheetOpen[1])closeSheet(1);switchTab(ds.tab);return;}
   if(ds.openDay){openDay(ds.openDay);return;}
@@ -2135,6 +2283,7 @@ document.addEventListener("click",e=>{
     return;
   }
   if(t.hasAttribute("data-r-gcal")){
+    lockPause();
     // Save first, then let the link itself open Google Calendar.
     const r=commitRoutine();
     if(!r||!r.time){e.preventDefault();return;}
@@ -2222,6 +2371,12 @@ document.addEventListener("click",e=>{
 });
 
 document.addEventListener("keydown",e=>{
+  if(lockMode){
+    // While the passcode screen is up, the keyboard only types digits.
+    if(/^[0-9]$/.test(e.key)){e.preventDefault();kpDigit(e.key);}
+    else if(e.key==="Backspace"){e.preventDefault();kpDel();}
+    return;
+  }
   if(e.key==="Escape"){if(viewing)closeViewer();else if(noteOpen)closeNote();else if(sheetOpen[2])closeSheet(2);else if(sheetOpen[1])closeSheet(1);return;}
   if(e.key!=="Enter"||e.isComposing)return;
   const gi=e.target.closest&&e.target.closest("input[data-goal-input]");
@@ -2320,6 +2475,7 @@ setInterval(()=>{
    Start
    ========================================================= */
 applyTheme();
+if(lockConf())showLock("unlock");
 renderToday();
 buildJournal();
 buildInsights();
