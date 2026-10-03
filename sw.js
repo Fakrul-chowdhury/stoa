@@ -1,5 +1,5 @@
 // Stoa service worker: keeps the app working offline and shows reminder notifications.
-const VERSION = "stoa-v2.0.11";
+const VERSION = "stoa-v2.0.12";
 const NOTIFY = "stoa-notify"; // goal names for reminders, written by the app; kept across updates
 const FILES = ["./", "./index.html", "./cal.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 

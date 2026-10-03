@@ -252,6 +252,21 @@ input[type=range]{display:block;width:100%;margin:4px 0 0;accent-color:var(--acc
 .entry-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
 .entry-date{font-weight:600}
 .entry-meta{font-size:13px;color:var(--muted);white-space:nowrap}
+/* Photos */
+.sec-tools{display:flex;align-items:center;gap:4px;align-self:center}
+.sec-head .icon-btn{margin:-10px -8px -10px 0}
+.head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.ph-strip{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
+.ph-strip::-webkit-scrollbar{display:none}
+.ph-thumb{flex:0 0 auto;width:84px;height:84px;border-radius:12px;overflow:hidden;background:var(--line)}
+.ph-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.ph-thumb:active{transform:scale(.95)}
+.ph-preview{display:block;width:100%;max-height:42vh;object-fit:contain;border-radius:14px;background:var(--surface);margin-bottom:16px}
+.viewer{position:fixed;inset:0;z-index:75;display:flex;flex-direction:column;background:#000;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);opacity:0;pointer-events:none;transition:opacity .25s var(--ease)}
+.viewer.open{opacity:1;pointer-events:auto}
+.viewer-bar{display:flex;justify-content:space-between;padding:14px 20px}
+.viewer-bar button{color:#fff;font-size:16px;font-weight:600}
+.viewer img{flex:1;min-height:0;width:100%;object-fit:contain}
 .entry-text{display:-webkit-box;margin-top:3px;font-family:var(--serif);color:var(--muted);font-size:16px;line-height:1.5;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .empty{text-align:center;padding:44px 12px;color:var(--muted)}
 .empty p{margin:0 0 16px}
@@ -341,9 +356,9 @@ button.cell:active{transform:scale(.9)}
 /* Sheets */
 .scrim{position:fixed;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .4s var(--ease)}
 .scrim.open{opacity:1;pointer-events:auto}
-#scrim1{z-index:40} #scrim2{z-index:50}
+#scrim1{z-index:40} #scrim2{z-index:61}
 .sheet{position:fixed;left:0;right:0;bottom:0;max-width:600px;margin:0 auto;max-height:92%;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);border-radius:24px 24px 0 0;padding:10px 20px calc(28px + env(safe-area-inset-bottom,0px));transform:translateY(105%);transition:transform .46s var(--ease-sheet);will-change:transform}
-#sheet1{z-index:41} #sheet2{z-index:51}
+#sheet1{z-index:41} #sheet2{z-index:62} /* above the note page, which can open it */
 .sheet.open{transform:none}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--line-strong);margin:0 auto 14px}
 .sheet-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:20px}
@@ -384,8 +399,10 @@ textarea.input{resize:vertical;min-height:110px;font-family:var(--serif);font-si
 .composer.open{transform:none;visibility:visible;transition:transform .46s var(--ease-sheet)}
 .composer-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;width:100%;max-width:600px;margin:0 auto;padding:14px 20px 10px;border-bottom:1px solid var(--line)}
 .composer-bar .link{justify-self:start;font-size:16px;padding:4px 0}
-.composer-bar .composer-end{justify-self:end;text-align:right}
-.composer-bar .link.composer-end{color:var(--muted);font-size:14px;font-weight:500}
+.composer-bar .composer-end{justify-self:end;display:flex;align-items:center;gap:2px;text-align:right}
+.composer-bar .composer-del{color:var(--muted);font-size:14px;font-weight:500;padding:4px 0}
+.composer-photos{width:100%;max-width:600px;margin:0 auto;padding:12px 20px 0}
+.composer-photos:empty{display:none}
 .composer-text{flex:1;display:block;width:100%;max-width:600px;margin:0 auto;border:0;outline:none;resize:none;background:transparent;font-family:var(--serif);font-size:19px;line-height:1.7;padding:18px 20px calc(28px + env(safe-area-inset-bottom,0px))}
 
 /* Welcome */
@@ -431,6 +448,8 @@ textarea.input{resize:vertical;min-height:110px;font-family:var(--serif);font-si
 <div class="scrim" id="scrim2" data-close-sheet="2"></div>
 <div class="sheet" id="sheet2" role="dialog" aria-modal="true"></div>
 <div class="composer" id="composer" role="dialog" aria-modal="true" aria-label="Note"></div>
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Photo"></div>
+<input type="file" accept="image/*" id="photo-input" hidden>
 <div class="welcome" id="welcome" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -461,6 +480,7 @@ const I={
   bell:'<svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>',
   cal:'<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   chev:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  camera:'<svg viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>',
   pen:'<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   heart:'<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-8-4.7-8-10.6A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 8 2.9c0 5.9-8 10.6-8 10.6z"/></svg>',
   plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
@@ -527,7 +547,8 @@ const tomorrowKey=()=>addDays(TODAY,1);
 /* =========================================================
    Data (stored only on this device)
    ========================================================= */
-const blankDay=()=>({mood:0,energy:0,text:"",prompt:-1,goals:[],seeded:[],gone:0,updatedAt:0});
+const blankDay=()=>({mood:0,energy:0,text:"",prompt:-1,goals:[],seeded:[],gone:0,photos:[],updatedAt:0});
+const cleanPhotos=a=>Array.isArray(a)?a.map(String).filter(Boolean).slice(0,200):[]; // ids of pictures kept in the photo store
 // A goal with a target is finished in steps: prog counts up to target, and it is done when they meet.
 const cleanTarget=t=>{t=Math.round(Number(t)||0);return t>=2?Math.min(t,9999):0;};
 const cleanLongTarget=t=>{t=Math.round(Number(t)||0);return t>=2?Math.min(t,100000):0;};
@@ -554,6 +575,7 @@ function cleanDay(r){
     goals:Array.isArray(r.goals)?r.goals.filter(g=>g&&typeof g.text==="string").map(cleanGoal):[],
     gone:clamp(r.gone,100000), // finished goals later cleared from the list; they still count in Insights
     seeded:Array.isArray(r.seeded)?r.seeded.map(String):[],
+    photos:cleanPhotos(r.photos),
     updatedAt:Number(r.updatedAt)||0
   };
 }
@@ -573,7 +595,7 @@ function cleanLong(g){
   if(o.doneAt)o.prog=target;else if(o.prog>=target)o.doneAt=o.updatedAt;
   return o;
 }
-function cleanNote(n){const c=Number(n.createdAt)||Date.now();return {id:String(n.id||newId()),text:String(n.text||""),createdAt:c,updatedAt:Number(n.updatedAt)||c};}
+function cleanNote(n){const c=Number(n.createdAt)||Date.now();return {id:String(n.id||newId()),text:String(n.text||""),photos:cleanPhotos(n.photos),createdAt:c,updatedAt:Number(n.updatedAt)||c};}
 function cleanQuote(q){return {id:String(q.id||newId()),text:String(q.text||"").slice(0,2000),author:String(q.author||"").slice(0,120),note:String(q.note||"").slice(0,4000),fav:!!q.fav,createdAt:Number(q.createdAt)||Date.now()};}
 function load(){
   let raw={};
@@ -586,7 +608,7 @@ function load(){
     days,
     routines:(raw.routines||[]).map(cleanRoutine).filter(r=>r.text),
     quotes:(raw.quotes||[]).map(cleanQuote).filter(q=>q.text),
-    notes:(raw.notes||[]).map(cleanNote).filter(n=>n.text.trim()),
+    notes:(raw.notes||[]).map(cleanNote).filter(n=>n.text.trim()||n.photos.length),
     longs:(raw.longs||[]).map(cleanLong).filter(g=>g.text)
   };
 }
@@ -602,7 +624,7 @@ function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(save,300);}
 const getDay=k=>S.days[k]||blankDay();
 const ensureDay=k=>S.days[k]||(S.days[k]=blankDay());
 const routine=id=>S.routines.find(r=>r.id===id);
-const checkedIn=d=>!!d&&(d.mood>0||d.energy>0||(d.text||"").trim().length>0);
+const checkedIn=d=>!!d&&(d.mood>0||d.energy>0||(d.text||"").trim().length>0||(d.photos||[]).length>0);
 const hasContent=d=>!!d&&(checkedIn(d)||d.goals.length>0);
 const promptIdx=k=>{const d=getDay(k);return d.prompt>=0?d.prompt:hash(k)%PROMPTS.length;};
 
@@ -754,10 +776,11 @@ function editorHTML(k,hero){
   return '<section class="'+(hero?"":"block ")+'" data-mood-block="'+k+'" data-hero="'+(hero?1:0)+'"></section>'+
     '<section class="block" data-energy-block="'+k+'"></section>'+
     '<section class="block">'+
-      '<div class="sec-head"><h2>Journal</h2><span class="save-state" data-save="'+k+'"></span></div>'+
+      '<div class="sec-head"><h2>Journal</h2><span class="sec-tools"><span class="save-state" data-save="'+k+'"></span><button class="icon-btn" data-photo="day:'+k+'" aria-label="Add a photo">'+I.camera+'</button></span></div>'+
       '<div class="page">'+
         '<div class="prompt-row"><p class="prompt" data-prompt="'+k+'"></p></div>'+
         '<textarea class="entry-input" data-text="'+k+'" placeholder="Start writing…" aria-label="Journal entry"></textarea>'+
+        '<div data-day-photos="'+k+'"></div>'+
       '</div>'+
     '</section>'+
     goalsHTML(k,k===TODAY?"Today's goals":"Goals");
@@ -881,6 +904,11 @@ function hydrate(root){
   $$("[data-prompt]",root).forEach(el=>el.textContent=PROMPTS[promptIdx(el.dataset.prompt)]);
   $$("textarea[data-text]",root).forEach(ta=>{if(document.activeElement!==ta)ta.value=getDay(ta.dataset.text).text;autosize(ta);});
   new Set($$("[data-goal-list]",root).map(el=>el.dataset.goalList)).forEach(updateGoals);
+  $$("[data-day-photos]",root).forEach(el=>{
+    const k=el.dataset.dayPhotos,ids=getDay(k).photos||[],sig=ids.join();
+    if(el._sig===sig)return;
+    el._sig=sig;el.innerHTML=photosHTML(ids,"day:"+k);fillPhotos(el);
+  });
 }
 
 /* =========================================================
@@ -949,7 +977,7 @@ function updateWeek(){
    Journal
    ========================================================= */
 function buildJournal(){
-  $("#view-journal").innerHTML='<header class="page-head"><div><h1>Journal</h1><p class="muted" data-jcount></p></div><button class="btn primary" data-new-note>'+I.plus+'New note</button></header>'+
+  $("#view-journal").innerHTML='<header class="page-head"><div><h1>Journal</h1><p class="muted" data-jcount></p></div><div class="head-actions"><button class="icon-btn" data-photo="note:new" aria-label="Note from a photo">'+I.camera+'</button><button class="btn primary" data-new-note>'+I.plus+'New note</button></div></header>'+
     '<input type="search" class="search" data-search placeholder="Search entries, notes and goals" aria-label="Search entries"><div data-jlist></div>';
 }
 function renderJournal(){
@@ -978,13 +1006,14 @@ function renderJournal(){
       const nt=it.note;
       html+='<button class="entry" data-open-note="'+esc(nt.id)+'"><span class="note-ic">'+I.pen+'</span><span class="entry-body">'+
         '<span class="entry-top"><span class="entry-date">'+date+'</span><span class="entry-meta">'+esc("Note, "+new Date(nt.createdAt).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}))+'</span></span>'+
-        '<span class="entry-text">'+esc(nt.text.trim())+'</span></span></button>';
+        '<span class="entry-text">'+esc(nt.text.trim()||photoCount(nt.photos))+'</span></span></button>';
       continue;
     }
     const d=it.day;
     const n=d.goals.length,done=d.goals.filter(g=>g.done).length;
     const meta=[];if(d.energy)meta.push(ENERGY[d.energy-1]+" energy");if(n)meta.push(done+"/"+n+" goals");
-    const excerpt=d.text.trim()||(d.mood||d.energy?"Checked in, no journal entry.":n+" goal"+(n===1?"":"s")+" set.");
+    const pc=(d.photos||[]).length;if(pc&&d.text.trim())meta.push(photoCount(d.photos));
+    const excerpt=d.text.trim()||(pc?photoCount(d.photos):d.mood||d.energy?"Checked in, no journal entry.":n+" goal"+(n===1?"":"s")+" set.");
     html+='<button class="entry" data-open-day="'+k+'"><span class="f">'+face(d.mood,40)+'</span><span class="entry-body">'+
       '<span class="entry-top"><span class="entry-date">'+date+'</span><span class="entry-meta">'+esc(meta.join(", "))+'</span></span>'+
       '<span class="entry-text">'+esc(excerpt)+'</span></span></button>';
@@ -1008,8 +1037,11 @@ function openNote(id){
   const when=n?new Date(n.createdAt).toLocaleString(undefined,{weekday:"short",day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}):"New note";
   const c=$("#composer");
   c.innerHTML='<header class="composer-bar"><button class="link" data-n-done>Done</button><span class="muted small">'+esc(when)+'</span>'+
-    (n?'<button class="link composer-end" data-n-delete>Delete</button>':'<span class="composer-end muted small">Saves as you write</span>')+'</header>'+
+    '<span class="composer-end"><button class="icon-btn" data-photo="note:open" aria-label="Add a photo">'+I.camera+'</button>'+
+    (n?'<button class="link composer-del" data-n-delete>Delete</button>':'<span class="muted small">Saves as you write</span>')+'</span></header>'+
+    '<div class="composer-photos" data-note-photos></div>'+
     '<textarea class="composer-text" data-n-text placeholder="Write anything…" aria-label="Note">'+esc(n?n.text:"")+'</textarea>';
+  notePhotos();
   noteOpen=true;
   c.classList.add("open");
   document.body.style.overflow="hidden";
@@ -1040,7 +1072,7 @@ function writeNote(text){
 function finishNote(){
   if(!editN)return;
   const n=S.notes.find(x=>x.id===editN);
-  if(n&&!n.text.trim())S.notes=S.notes.filter(x=>x!==n); // an emptied note is dropped
+  if(n&&!n.text.trim()&&!n.photos.length)S.notes=S.notes.filter(x=>x!==n); // an emptied note is dropped
   editN=null;save();
 }
 
@@ -1377,7 +1409,7 @@ function closeSheet(n){
   sheetOpen[n]=false;
   $("#scrim"+n).classList.remove("open");$("#sheet"+n).classList.remove("open");
   if(n===1)daySheetKey=null;
-  if(n===2){editR=null;editL=null;}
+  if(n===2){editR=null;editL=null;phPick=null;}
   if(!sheetOpen[1]&&!sheetOpen[2])document.body.style.overflow="";
   setTimeout(()=>{if(!sheetOpen[n])$("#sheet"+n).innerHTML="";},480);
   renderAll();
@@ -1504,7 +1536,7 @@ function openSettings(){
       '<button class="btn block-btn" data-open-saved>Manage saved goals</button>'+
       (withTime?'<button class="btn block-btn" data-cal-all style="margin-top:8px">'+I.cal+'Add all repeating reminders to Calendar</button>':'')+'</div>'+
     '<div class="field"><span class="field-label">Your data</span>'+
-      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. Your journal and goals are never sent anywhere; if you turn on notifications, only the reminder times are. If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
+      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. Your journal and goals are never sent anywhere. Two exceptions you choose: with notifications on, the reminder times go to the notification server, and a photo you turn into text is sent to be read (it isn\'t kept). If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
       '<div class="btn-row"><button class="btn" data-export>'+I.down+'Export backup</button><label class="btn">'+I.up+'Import backup<input type="file" accept="application/json,.json" hidden data-import></label></div></div>');
 }
 
@@ -1582,7 +1614,12 @@ const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").sl
    Backup
    ========================================================= */
 async function exportData(){
-  const data=JSON.stringify({app:"stoa",version:2,exportedAt:new Date().toISOString(),profile:S.profile,settings:S.settings,days:S.days,routines:S.routines,quotes:S.quotes,notes:S.notes,longs:S.longs},null,2);
+  // Photos go in the backup as data, so it is complete on its own.
+  const photos={},ids=new Set();
+  Object.values(S.days).forEach(d=>(d.photos||[]).forEach(id=>ids.add(id)));
+  S.notes.forEach(x=>x.photos.forEach(id=>ids.add(id)));
+  for(const id of ids){try{const ph=await photoGet(id);if(ph)photos[id]=await blobToDataUrl(ph.blob);}catch(e){}}
+  const data=JSON.stringify({app:"stoa",version:2,exportedAt:new Date().toISOString(),profile:S.profile,settings:S.settings,days:S.days,routines:S.routines,quotes:S.quotes,notes:S.notes,longs:S.longs,photos},null,2);
   const name="stoa-backup-"+TODAY+".json";
   try{
     const file=new File([data],name,{type:"application/json"});
@@ -1596,7 +1633,7 @@ async function exportData(){
 }
 function importData(file){
   const fr=new FileReader();
-  fr.onload=()=>{
+  fr.onload=async()=>{
     try{
       const obj=JSON.parse(fr.result);
       if(!obj||typeof obj.days!=="object")throw 0;
@@ -1613,10 +1650,15 @@ function importData(file){
         if(!cur)S.quotes.push(c);else if(c.note&&!cur.note)cur.note=c.note;
       });
       (obj.notes||[]).forEach(x=>{
-        const c=cleanNote(x);if(!c.text.trim())return;
+        const c=cleanNote(x);if(!c.text.trim()&&!c.photos.length)return;
         const cur=S.notes.find(y=>y.id===c.id);
-        if(!cur)S.notes.push(c);else if(c.updatedAt>cur.updatedAt){cur.text=c.text;cur.updatedAt=c.updatedAt;}
+        if(!cur)S.notes.push(c);else if(c.updatedAt>cur.updatedAt){cur.text=c.text;cur.photos=c.photos;cur.updatedAt=c.updatedAt;}
       });
+      for(const id in (obj.photos||{})){
+        const data=obj.photos[id];
+        if(typeof data!=="string"||!/^data:image\//.test(data))continue;
+        try{if(!(await photoGet(id)))await photoPut({id,blob:await (await fetch(data)).blob(),at:Date.now()});}catch(e){}
+      }
       (obj.longs||[]).forEach(x=>{
         const c=cleanLong(x);if(!c.text)return;
         const i=S.longs.findIndex(y=>y.id===c.id);
@@ -1683,6 +1725,133 @@ function themeFade(){
 }
 let tt;
 function toast(msg){const el=$("#toast");el.textContent=msg;el.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("show"),2800);}
+
+/* =========================================================
+   Photos
+   Pictures live in the phone's own database (IndexedDB), not with the rest of the journal,
+   because they are much bigger. A day or a note keeps only their ids.
+   ========================================================= */
+let photoDb=null;
+function openPhotoDb(){
+  return photoDb||(photoDb=new Promise((ok,fail)=>{
+    const q=indexedDB.open("stoa-photos",2);
+    q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("photos"))q.result.createObjectStore("photos",{keyPath:"id"});};
+    q.onsuccess=()=>ok(q.result);q.onerror=()=>fail(q.error);
+  }));
+}
+async function photoStore(mode,fn){
+  const db=await openPhotoDb();
+  return new Promise((ok,fail)=>{
+    const tx=db.transaction("photos",mode),req=fn(tx.objectStore("photos"));
+    tx.oncomplete=()=>ok(req&&req.result);tx.onerror=()=>fail(tx.error);
+  });
+}
+const photoPut=ph=>photoStore("readwrite",st=>st.put(ph));
+const photoGet=id=>photoStore("readonly",st=>st.get(id));
+const photoUrls=new Map();
+async function photoUrl(id){
+  if(!photoUrls.has(id)){const ph=await photoGet(id).catch(()=>null);if(!ph)return "";photoUrls.set(id,URL.createObjectURL(ph.blob));}
+  return photoUrls.get(id);
+}
+function forgetPhoto(id){
+  photoStore("readwrite",st=>st.delete(id)).catch(()=>{});
+  const u=photoUrls.get(id);if(u){URL.revokeObjectURL(u);photoUrls.delete(id);}
+}
+const photoCount=ids=>{const c=(ids||[]).length;return c+(c===1?" photo":" photos");};
+const blobToDataUrl=b=>new Promise((ok,fail)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>fail(r.error);r.readAsDataURL(b);});
+function photosHTML(ids,owner){
+  return ids.length?'<div class="ph-strip">'+ids.map(id=>'<button class="ph-thumb" data-ph-open="'+esc(id)+'" data-ph-owner="'+esc(owner)+'" aria-label="Open photo"><img data-ph-src="'+esc(id)+'" alt=""></button>').join("")+'</div>':"";
+}
+function fillPhotos(root){$$("img[data-ph-src]",root).forEach(async img=>{if(!img.src)img.src=await photoUrl(img.dataset.phSrc);});}
+function notePhotos(){
+  const box=$("[data-note-photos]");if(!box)return;
+  const nt=editN&&S.notes.find(x=>x.id===editN);
+  box.innerHTML=nt?photosHTML(nt.photos,"note:"+nt.id):"";fillPhotos(box);
+}
+// Scale a picture down (it also comes out the right way up) and re-encode it as JPEG.
+async function shrinkPhoto(file,max,quality){
+  const url=URL.createObjectURL(file);
+  try{
+    // Waits for "load" rather than decode(), which can stall while the app is in the background.
+    const img=new Image();await new Promise((ok,fail)=>{img.onload=ok;img.onerror=fail;img.src=url;});
+    const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),w=Math.round(img.naturalWidth*k),h=Math.round(img.naturalHeight*k);
+    const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+    return {canvas:c,w,h,blob:await new Promise(ok=>c.toBlob(ok,"image/jpeg",quality))};
+  }finally{URL.revokeObjectURL(url);}
+}
+
+// Where a new photo goes: today's (or another day's) journal, a new note, or the note being written.
+let phTarget=null,phPick=null;
+function pickPhoto(target){phTarget=target;const inp=$("#photo-input");inp.value="";inp.click();}
+function photoChosen(file){
+  if(!file||!phTarget)return;
+  phPick={file,url:URL.createObjectURL(file)};
+  openSheet(2,sheetHead("Add a photo")+
+    '<img class="ph-preview" src="'+phPick.url+'" alt="The photo you picked">'+
+    '<div class="sheet-actions"><button class="btn primary block-btn" data-ph-text>Turn it into text</button><button class="btn block-btn" data-ph-keep>Add as a picture</button></div>'+
+    '<p class="hint">Turning it into text works for printed or handwritten notes. The photo is sent to your Stoa server to be read and isn\'t kept there.</p>');
+}
+function addText(text){
+  const t=phTarget,join=old=>old.trim()?old.replace(/\s+$/,"")+"\n\n"+text:text;
+  if(t.startsWith("day:")){mutate(t.slice(4),d=>{d.text=join(d.text);});return "Added to your journal";}
+  if(t==="note:open"&&noteOpen){const ta=$("[data-n-text]");ta.value=join(ta.value);writeNote(ta.value);return "Added to your note";}
+  const nt=cleanNote({text});S.notes.push(nt);save();openNote(nt.id);return "Saved as a new note";
+}
+function addPicture(id){
+  const t=phTarget;
+  if(t.startsWith("day:")){mutate(t.slice(4),d=>{d.photos=(d.photos||[]).concat(id);});return;}
+  if(t==="note:open"&&noteOpen){
+    let nt=editN&&S.notes.find(x=>x.id===editN);
+    if(!nt){nt=cleanNote({text:$("[data-n-text]").value});S.notes.push(nt);editN=nt.id;}
+    nt.photos.push(id);nt.updatedAt=Date.now();save();notePhotos();return;
+  }
+  const nt=cleanNote({photos:[id]});S.notes.push(nt);save();openNote(nt.id);
+}
+async function photoToText(btn){
+  const pick=phPick;if(!pick)return;
+  btn.disabled=true;btn.textContent="Reading…";
+  try{
+    const {canvas}=await shrinkPhoto(pick.file,2000,.85);
+    const stop=new AbortController(),timer=setTimeout(()=>stop.abort(),45000);
+    const res=await fetch(PUSH_URL+"/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:canvas.toDataURL("image/jpeg",.85)}),signal:stop.signal});
+    clearTimeout(timer);
+    const out=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(out.error||"failed");
+    const text=(out.text||"").trim();
+    if(phPick!==pick)return; // the sheet was closed while reading
+    if(!text){toast("Couldn't find any writing in that photo.");btn.disabled=false;btn.textContent="Turn it into text";return;}
+    closeSheet(2);toast(addText(text));
+  }catch(e){
+    if(phPick!==pick)return;
+    toast(navigator.onLine?"Couldn't read that photo. Try again, or add it as a picture.":"You're offline. Add it as a picture for now.");
+    btn.disabled=false;btn.textContent="Turn it into text";
+  }
+}
+async function photoKeep(btn){
+  const pick=phPick;if(!pick)return;
+  btn.disabled=true;btn.textContent="Adding…";
+  try{
+    const {blob,w,h}=await shrinkPhoto(pick.file,1600,.8),id=newId();
+    await photoPut({id,blob,w,h,at:Date.now()});
+    closeSheet(2);addPicture(id);toast("Photo added");
+  }catch(e){toast("Couldn't add that photo.");btn.disabled=false;btn.textContent="Add as a picture";}
+}
+
+// Full-screen view of one photo, with delete.
+let viewing=null;
+async function openViewer(id,owner){
+  const v=$("#viewer");viewing={id,owner};
+  v.innerHTML='<div class="viewer-bar"><button data-v-close>Close</button><button data-v-delete>Delete</button></div><img alt="Photo">';
+  v.classList.add("open");
+  $("img",v).src=await photoUrl(id);
+}
+function closeViewer(){$("#viewer").classList.remove("open");viewing=null;}
+function deleteViewed(){
+  const {id,owner}=viewing,key=owner.slice(owner.indexOf(":")+1);
+  if(owner.startsWith("day:"))mutate(key,d=>{d.photos=(d.photos||[]).filter(x=>x!==id);});
+  else{const nt=S.notes.find(x=>x.id===key);if(nt){nt.photos=nt.photos.filter(x=>x!==id);nt.updatedAt=Date.now();save();}notePhotos();}
+  forgetPhoto(id);closeViewer();toast("Photo deleted");
+}
 
 /* =========================================================
    Notifications
@@ -1997,9 +2166,22 @@ document.addEventListener("click",e=>{
   // open notes
   if(t.hasAttribute("data-new-note")){openNote(null);return;}
   if(ds.openNote){openNote(ds.openNote);return;}
+
+  // photos
+  if(ds.photo){pickPhoto(ds.photo);return;}
+  if(t.hasAttribute("data-ph-text")){photoToText(t);return;}
+  if(t.hasAttribute("data-ph-keep")){photoKeep(t);return;}
+  if(ds.phOpen){openViewer(ds.phOpen,ds.phOwner);return;}
+  if(t.hasAttribute("data-v-close")){closeViewer();return;}
+  if(t.hasAttribute("data-v-delete")&&viewing){
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again to delete";return;}
+    deleteViewed();return;
+  }
   if(t.hasAttribute("data-n-done")){closeNote();return;}
   if(t.hasAttribute("data-n-delete")&&editN){
     if(!ds.sure){ds.sure="1";t.textContent="Tap again";t.style.color="var(--accent)";return;}
+    const gone=S.notes.find(x=>x.id===editN);
+    if(gone)gone.photos.forEach(id=>forgetPhoto(id));
     S.notes=S.notes.filter(x=>x.id!==editN);editN=null;save();toast("Note deleted");closeNote();return;
   }
 
@@ -2040,7 +2222,7 @@ document.addEventListener("click",e=>{
 });
 
 document.addEventListener("keydown",e=>{
-  if(e.key==="Escape"){if(noteOpen)closeNote();else if(sheetOpen[2])closeSheet(2);else if(sheetOpen[1])closeSheet(1);return;}
+  if(e.key==="Escape"){if(viewing)closeViewer();else if(noteOpen)closeNote();else if(sheetOpen[2])closeSheet(2);else if(sheetOpen[1])closeSheet(1);return;}
   if(e.key!=="Enter"||e.isComposing)return;
   const gi=e.target.closest&&e.target.closest("input[data-goal-input]");
   if(gi){e.preventDefault();if(addGoalText(gi.dataset.goalInput,gi.value))gi.value="";return;}
@@ -2108,6 +2290,7 @@ document.addEventListener("change",e=>{
   }
   if(el.matches("[data-r-time]")&&editR){editR.time=el.value||"08:00";syncRemind();return;}
   if(el.matches("[data-import]")){const f=el.files&&el.files[0];if(f)importData(f);el.value="";}
+  if(el.id==="photo-input"){photoChosen(el.files&&el.files[0]);return;}
 });
 
 function checkDate(){
