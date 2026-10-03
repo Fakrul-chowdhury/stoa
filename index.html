@@ -642,6 +642,7 @@ function save(){
   clearTimeout(saveTimer);saveTimer=null;
   try{localStorage.setItem(STORE_KEY,JSON.stringify(S));}catch(e){toast("Couldn't save. Your phone may be low on storage.");}
   pushSoon();
+  if(!syncQuiet)syncSoon();
 }
 function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(save,300);}
 
@@ -1555,13 +1556,14 @@ function openSettings(){
     '<label class="field"><span>Your name</span><input class="input" data-s-name maxlength="40" value="'+esc(S.profile.name)+'" placeholder="What should Stoa call you?" autocomplete="given-name"></label>'+
     '<div class="field"><span class="field-label">Appearance</span><div class="seg" role="radiogroup" aria-label="Appearance">'+
       [["system","Match phone"],["light","Light"],["dark","Dark"]].map(t=>'<button role="radio" aria-checked="'+(S.settings.theme===t[0])+'" data-s-theme="'+t[0]+'">'+t[1]+'</button>').join("")+'</div></div>'+
+    '<div class="field"><span class="field-label">Account and sync</span><div data-acct-box>'+acctBox()+'</div></div>'+
     '<div class="field"><span class="field-label">App lock</span><div data-lock-box>'+lockBox()+'</div></div>'+
     '<div class="field"><span class="field-label">Notifications</span><div data-push-box>'+pushBox()+'</div></div>'+
     '<div class="field"><span class="field-label">Goals and reminders</span>'+
       '<button class="btn block-btn" data-open-saved>Manage saved goals</button>'+
       (withTime?'<button class="btn block-btn" data-cal-all style="margin-top:8px">'+I.cal+'Add all repeating reminders to Calendar</button>':'')+'</div>'+
     '<div class="field"><span class="field-label">Your data</span>'+
-      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. Your journal and goals are never sent anywhere. Two exceptions you choose: with notifications on, the reminder times go to the notification server, and a photo you turn into text is sent to be read (it isn\'t kept). If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
+      '<p class="hint" style="margin:0 0 12px">Everything is stored on this phone, inside Stoa. If you sign in (above), your journal is also kept on your Stoa server so your devices can share it. Otherwise it never leaves the phone, except for two things you choose: reminder times when notifications are on, and a photo you turn into text, which is read and not kept. If you delete the app from your home screen, its data goes with it, so export a backup now and then.</p>'+
       '<div class="btn-row"><button class="btn" data-export>'+I.down+'Export backup</button><label class="btn">'+I.up+'Import backup<input type="file" accept="application/json,.json" hidden data-import></label></div></div>');
 }
 
@@ -1838,7 +1840,7 @@ function showForgot(){
 async function eraseAll(){
   clearTimeout(saveTimer);saveTimer=null; // nothing may write the journal back
   try{const sub=await pushSub();if(sub){pushPost("/unsub",{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe();}}catch(e){}
-  [STORE_KEY,LOCK_KEY,FAIL_KEY,PUSH_SENT].forEach(k=>localStorage.removeItem(k));
+  [STORE_KEY,LOCK_KEY,FAIL_KEY,PUSH_SENT,SYNC_KEY].forEach(k=>localStorage.removeItem(k));
   try{indexedDB.deleteDatabase("stoa-photos");}catch(e){}
   try{await caches.delete("stoa-notify");}catch(e){}
   location.reload();
@@ -1853,6 +1855,230 @@ function lockBox(){
     '<div class="btn-row"><button class="btn" data-lock-change>Change passcode</button><button class="btn" data-lock-off>Turn off</button></div>';
 }
 function lockRefresh(){const b=$("[data-lock-box]");if(b)b.innerHTML=lockBox();}
+
+/* =========================================================
+   Account and sync
+   Signing in with a passkey lets a phone and a laptop share one journal. Days, notes, quotes,
+   saved goals, long-term goals, the name and photos are copied to the Stoa server, where they are
+   readable (not end-to-end encrypted). The lock, notification and appearance settings stay on
+   each device. Items are merged one by one: the most recent change to each wins.
+   ========================================================= */
+const SYNC_KEY="stoa.sync.v1"; // {token, cursor, last:{"kind:id":fingerprint}, up:[photo ids uploaded], joined, at}
+function syncConf(){try{return JSON.parse(localStorage.getItem(SYNC_KEY)||"null")||{};}catch(e){return {};}}
+function setSync(c){try{localStorage.setItem(SYNC_KEY,JSON.stringify(c));}catch(e){}}
+let syncBusy=false,syncAgain=false,syncTimer=null,syncState="",syncQuiet=false;
+const fromB64url=t=>fromB64(String(t).replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(String(t).length/4)*4,"="));
+// A short fingerprint of an item, to notice what changed since the last sync without keeping a second copy.
+function fp(str){
+  let a=0xdeadbeef,b=0x41c6ce57;
+  for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677);}
+  a=Math.imul(a^(a>>>16),2246822507)^Math.imul(b^(b>>>13),3266489909);
+  b=Math.imul(b^(b>>>16),2246822507)^Math.imul(a^(a>>>13),3266489909);
+  return (b>>>0).toString(36)+(a>>>0).toString(36);
+}
+const SYNC_LISTS={note:"notes",quote:"quotes",routine:"routines",long:"longs"};
+const SYNC_CLEAN={note:cleanNote,quote:cleanQuote,routine:cleanRoutine,long:cleanLong};
+function syncItems(){
+  const m={},put=(kind,id,data)=>{m[kind+":"+id]={kind,id,data,fp:fp(JSON.stringify(data))};};
+  for(const k in S.days)put("day",k,S.days[k]);
+  for(const kind in SYNC_LISTS)S[SYNC_LISTS[kind]].forEach(x=>put(kind,x.id,x));
+  if(S.profile.name)put("profile","me",{name:S.profile.name}); // an empty name never overwrites one set elsewhere
+  return m;
+}
+function syncNowFp(kind,id){
+  const x=kind==="day"?S.days[id]:kind==="profile"?(S.profile.name?{name:S.profile.name}:null):(S[SYNC_LISTS[kind]]||[]).find(y=>y.id===id);
+  return x?fp(JSON.stringify(x)):"";
+}
+// Put one item from the server into the journal; returns it as stored here (null when deleted).
+function syncApply(it){
+  if(it.kind==="day"){
+    if(!KEY_RE.test(it.id))return null;
+    if(it.deleted||!it.data){delete S.days[it.id];return null;}
+    return S.days[it.id]=cleanDay(it.data);
+  }
+  if(it.kind==="profile"){
+    if(!it.deleted&&it.data&&it.data.name){S.profile.name=String(it.data.name).slice(0,40);S.profile.onboarded=true;}
+    return S.profile.name?{name:S.profile.name}:null;
+  }
+  const list=SYNC_LISTS[it.kind];if(!list)return null;
+  const arr=S[list],i=arr.findIndex(x=>x.id===it.id);
+  if(it.deleted||!it.data){if(i>=0)arr.splice(i,1);return null;}
+  const c=SYNC_CLEAN[it.kind](Object.assign({},it.data,{id:it.id}));
+  if(i>=0)arr[i]=c;else arr.push(c);
+  return c;
+}
+async function acct(path,body,opts){
+  const o=opts||{},c=syncConf(),headers={"Content-Type":o.raw?"image/jpeg":"application/json"};
+  if(c.token)headers.Authorization="Bearer "+c.token;
+  const res=await fetch(PUSH_URL+path,{method:o.method||"POST",headers,body:o.method==="GET"?undefined:o.raw||JSON.stringify(body||{})});
+  if(res.status===401&&c.token&&!o.signingIn){localStorage.removeItem(SYNC_KEY);syncState="";toast("You were signed out. Sign in again to keep syncing.");acctRefresh();}
+  return res;
+}
+function syncSoon(ms){
+  if(!syncConf().token)return;
+  clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,ms==null?2500:ms);
+}
+async function syncNow(){
+  if(!syncConf().token)return false;
+  if(!navigator.onLine){syncState="offline";syncShow();return false;}
+  if(syncBusy){syncAgain=true;return false;}
+  syncBusy=true;syncState="syncing";syncShow();
+  let applied=0;
+  try{
+    const c=syncConf();c.last=c.last||{};
+    const take=async(since,changes)=>{
+      const res=await acct("/account/sync",{since,changes});
+      if(!res.ok)throw new Error(res.status===401?"signed out":"the server said "+res.status);
+      return res.json();
+    };
+    // Joining an account: what the account already holds wins over this device's copy;
+    // anything only this device has is uploaded straight after.
+    if(!c.joined){
+      let since=0,more=true;
+      while(more){
+        const r=await take(since,[]);
+        r.items.forEach(it=>{const kept=syncApply(it),key=it.kind+":"+it.id;if(kept)c.last[key]=fp(JSON.stringify(kept));else delete c.last[key];applied++;});
+        since=r.cursor;more=r.more;
+      }
+      c.cursor=since;c.joined=true;
+    }
+    // Send what changed here since the last sync, then bring in what changed elsewhere.
+    const cur=syncItems(),changes=[],stamp=Date.now();
+    for(const key in cur)if(c.last[key]!==cur[key].fp)changes.push({kind:cur[key].kind,id:cur[key].id,data:cur[key].data,updated:stamp});
+    for(const key in c.last)if(!cur[key]){const i=key.indexOf(":");changes.push({kind:key.slice(0,i),id:key.slice(i+1),deleted:true,updated:stamp});}
+    let since=c.cursor||0,more=true;const got=[];
+    while(changes.length||more){
+      const batch=changes.splice(0,40),r=await take(since,batch);
+      batch.forEach(ch=>{const key=ch.kind+":"+ch.id;if(ch.deleted)delete c.last[key];else c.last[key]=cur[key].fp;});
+      got.push(...r.items);since=r.cursor;more=r.more;
+    }
+    for(const it of got){
+      const key=it.kind+":"+it.id;
+      if(syncNowFp(it.kind,it.id)!==(c.last[key]||""))continue; // changed here again meanwhile: it goes up next time
+      const kept=syncApply(it);
+      const f=kept?fp(JSON.stringify(kept)):"";
+      if(f!==(c.last[key]||""))applied++;
+      if(kept)c.last[key]=f;else delete c.last[key];
+    }
+    c.cursor=since;c.at=Date.now();
+    if(!syncConf().token)return false; // signed out while this was running
+    setSync(c);
+    if(applied){syncQuiet=true;save();syncQuiet=false;renderAll();}
+    syncState="";
+    await syncPhotos();
+    return true;
+  }catch(e){
+    syncState="!"+(e&&e.message?e.message:"no connection");
+    return false;
+  }finally{
+    syncBusy=false;syncShow();
+    if(syncAgain){syncAgain=false;syncSoon(400);}
+  }
+}
+// Photos: upload the ones this device has that the server doesn't, fetch the ones it's missing.
+async function syncPhotos(){
+  const c=syncConf();if(!c.token)return;
+  const ids=new Set();
+  Object.values(S.days).forEach(d=>(d.photos||[]).forEach(id=>ids.add(id)));
+  S.notes.forEach(x=>x.photos.forEach(id=>ids.add(id)));
+  const done=new Set(c.up||[]);let tries=0,fetched=0;
+  for(const id of ids){
+    if(done.has(id))continue;
+    if(++tries>8)break; // a few each time; the rest follow on the next sync
+    try{
+      const local=await photoGet(id).catch(()=>null);
+      if(local){if((await acct("/photo/"+id,null,{method:"PUT",raw:local.blob})).ok)done.add(id);}
+      else{
+        const res=await acct("/photo/"+id,null,{method:"GET"});
+        if(res.ok){await photoPut({id,blob:await res.blob(),at:Date.now()});done.add(id);fetched++;}
+      }
+    }catch(e){}
+  }
+  const now=syncConf();if(!now.token)return;
+  now.up=[...done];setSync(now);
+  if(fetched){fillPhotos(document);notePhotos();}
+}
+
+// Settings: account box.
+const ago=t=>{const sec=Math.round((Date.now()-t)/1000);return sec<60?"just now":sec<3600?Math.round(sec/60)+" min ago":new Date(t).toLocaleString(undefined,{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});};
+function syncLabel(){
+  const c=syncConf();
+  if(syncState==="syncing")return "Signed in. Syncing…";
+  if(syncState==="offline")return "Signed in. You're offline; changes will sync when you're back.";
+  if(syncState.startsWith("!"))return "Signed in. The last sync didn't finish ("+syncState.slice(1)+"); it will try again.";
+  return c.at?"Signed in. Last synced "+ago(c.at)+".":"Signed in.";
+}
+function syncShow(){const el=$("[data-sync-status]");if(el)el.textContent=syncLabel();}
+function acctBox(){
+  if(!syncConf().token)return '<p class="hint" style="margin:0 0 12px">Sign in to use the same journal on your phone and your laptop. Your journal is then also kept on your Stoa server (on Cloudflare) so they can share it; it isn\'t end-to-end encrypted there.</p>'+
+    '<div class="btn-row"><button class="btn" data-acct-create>Create account</button><button class="btn" data-acct-signin>Sign in</button></div>'+
+    '<p class="hint">First time: on your phone, export a backup (under Your data), then Create account. On your laptop, choose Sign in and pick your phone when it asks which passkey to use.</p>';
+  return '<p class="hint" style="margin:0 0 12px" data-sync-status>'+esc(syncLabel())+'</p>'+
+    '<div class="btn-row"><button class="btn" data-sync-now>Sync now</button><button class="btn" data-acct-addkey>Add a passkey on this device</button><button class="btn" data-acct-out>Sign out</button></div>'+
+    '<button class="link" data-acct-delete style="margin-top:14px">Delete my account and the synced copy</button>';
+}
+function acctRefresh(){const b=$("[data-acct-box]");if(b)b.innerHTML=acctBox();}
+function startSession(token,msg){
+  setSync({token,cursor:0,last:{},up:[],joined:false});
+  syncState="";toast(msg);acctRefresh();
+  syncNow().then(()=>{acctRefresh();renderToday();renderAll();});
+}
+// Make a passkey for the account: a new account, or (signed in) one more device for the same account.
+async function acctCreate(another){
+  if(!window.PublicKeyCredential||!navigator.credentials){toast("This browser can't use passkeys.");return;}
+  try{
+    const start=await (await acct("/account/register/start",{},{signingIn:true})).json();
+    if(!start.challenge)throw new Error(start.error||"Couldn't start.");
+    const cred=await navigator.credentials.create({publicKey:{
+      rp:{name:"Stoa",id:location.hostname},
+      user:{id:fromB64url(start.handle),name:"Stoa account",displayName:S.profile.name?S.profile.name+"'s Stoa":"Stoa account"},
+      challenge:fromB64url(start.challenge),
+      pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
+      authenticatorSelection:{residentKey:"required",requireResidentKey:true,userVerification:"required"},
+      timeout:120000,attestation:"none"
+    }});
+    const r=cred.response;
+    if(!r.getPublicKey||!r.getAuthenticatorData)throw new Error("This browser is too old for Stoa accounts.");
+    const res=await acct("/account/register/finish",{challenge:start.challenge,id:toB64url(cred.rawId),publicKey:toB64url(r.getPublicKey()),alg:r.getPublicKeyAlgorithm(),
+      clientDataJSON:toB64url(r.clientDataJSON),authenticatorData:toB64url(r.getAuthenticatorData()),label:another?"added":"first"},{signingIn:true});
+    const out=await res.json();
+    if(!res.ok||!out.token)throw new Error(out.error||"Couldn't create the account.");
+    if(another)toast("Passkey added. This device can sign in with it next time.");
+    else startSession(out.token,"Account created. Uploading your journal…");
+  }catch(e){if(!e||e.name!=="NotAllowedError")toast((e&&e.message)||"Couldn't create the account.");}
+  acctRefresh();
+}
+async function acctSignIn(){
+  if(!window.PublicKeyCredential||!navigator.credentials){toast("This browser can't use passkeys.");return;}
+  try{
+    const start=await (await acct("/account/login/start",{},{signingIn:true})).json();
+    if(!start.challenge)throw new Error(start.error||"Couldn't start.");
+    const a=await navigator.credentials.get({publicKey:{challenge:fromB64url(start.challenge),rpId:location.hostname,userVerification:"required",timeout:120000}});
+    const r=a.response;
+    const res=await acct("/account/login/finish",{challenge:start.challenge,id:toB64url(a.rawId),clientDataJSON:toB64url(r.clientDataJSON),authenticatorData:toB64url(r.authenticatorData),signature:toB64url(r.signature)},{signingIn:true});
+    const out=await res.json();
+    if(!res.ok||!out.token)throw new Error(out.error||"Couldn't sign in.");
+    startSession(out.token,"Signed in. Bringing in your journal…");
+  }catch(e){if(!e||e.name!=="NotAllowedError")toast((e&&e.message)||"Couldn't sign in.");}
+  acctRefresh();
+}
+async function acctSignOut(){
+  try{await acct("/account/logout",{});}catch(e){}
+  localStorage.removeItem(SYNC_KEY);syncState="";
+  toast("Signed out. Your journal stays on this device.");acctRefresh();
+}
+async function acctDelete(){
+  try{
+    const res=await acct("/account/delete",{});
+    if(!res.ok)throw new Error();
+    localStorage.removeItem(SYNC_KEY);syncState="";
+    toast("Account deleted from the server. This device keeps its own copy.");
+  }catch(e){toast("Couldn't delete the account. Try again when you're online.");}
+  acctRefresh();
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")syncSoon(300);});
+window.addEventListener("online",()=>syncSoon(0));
+setInterval(()=>{if(document.visibilityState==="visible")syncSoon(0);},60000); // pick up changes made on the other device
 
 /* Face ID: a passkey on this phone that only opens after Face ID (or Touch ID) checks it's you.
    Stoa only learns yes or no; the face never reaches the app. */
@@ -1940,7 +2166,7 @@ const blobToDataUrl=b=>new Promise((ok,fail)=>{const r=new FileReader();r.onload
 function photosHTML(ids,owner){
   return ids.length?'<div class="ph-strip">'+ids.map(id=>'<button class="ph-thumb" data-ph-open="'+esc(id)+'" data-ph-owner="'+esc(owner)+'" aria-label="Open photo"><img data-ph-src="'+esc(id)+'" alt=""></button>').join("")+'</div>':"";
 }
-function fillPhotos(root){$$("img[data-ph-src]",root).forEach(async img=>{if(!img.src)img.src=await photoUrl(img.dataset.phSrc);});}
+function fillPhotos(root){$$("img[data-ph-src]",root).forEach(async img=>{if(!img.getAttribute("src")){const u=await photoUrl(img.dataset.phSrc);if(u)img.src=u;}});}
 function notePhotos(){
   const box=$("[data-note-photos]");if(!box)return;
   const nt=editN&&S.notes.find(x=>x.id===editN);
@@ -2235,6 +2461,15 @@ document.addEventListener("click",e=>{
   if(t.hasAttribute("data-kp-erase")){
     if(!ds.sure){ds.sure="1";t.textContent="Tap again: this erases everything";return;}
     eraseAll();return;
+  }
+  if(t.hasAttribute("data-acct-create")){acctCreate(false);return;}
+  if(t.hasAttribute("data-acct-signin")){acctSignIn();return;}
+  if(t.hasAttribute("data-acct-addkey")){acctCreate(true);return;}
+  if(t.hasAttribute("data-sync-now")){syncNow().then(ok=>toast(ok?"Synced.":"Couldn't sync right now."));return;}
+  if(t.hasAttribute("data-acct-out")){acctSignOut();return;}
+  if(t.hasAttribute("data-acct-delete")){
+    if(!ds.sure){ds.sure="1";t.textContent="Tap again: delete the account and everything on the server";return;}
+    acctDelete();return;
   }
   if(t.hasAttribute("data-lock-set")){showLock("set1");return;}
   if(t.hasAttribute("data-lock-change")){showLock("change");return;}
@@ -2537,6 +2772,7 @@ if("serviceWorker" in navigator&&location.protocol==="https:"){
   window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 }
 if(pushCapable)pushSync().then(pushRefresh);
+syncSoon(600);
 })();
 </script>
 </body>
